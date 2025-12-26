@@ -2,17 +2,40 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Code } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 const PreviewApp = () => {
   const { appName } = useParams<{ appName: string }>();
   const [previewCode, setPreviewCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load the preview code from sessionStorage
-    const storedCode = sessionStorage.getItem(`preview-${appName}`);
-    if (storedCode) {
-      setPreviewCode(storedCode);
-    }
+    const loadPreview = async () => {
+      if (!appName) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('app_previews')
+          .select('html_content')
+          .eq('app_name', appName)
+          .single();
+
+        if (error) {
+          console.error('Error loading preview:', error);
+        } else if (data) {
+          setPreviewCode(data.html_content);
+        }
+      } catch (err) {
+        console.error('Failed to load preview:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPreview();
   }, [appName]);
 
   // Fallback content if no code is stored
@@ -55,15 +78,44 @@ const PreviewApp = () => {
       font-size: 0.875rem;
       border: 1px solid rgba(102, 126, 234, 0.3);
     }
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-size: 1.2rem;
+      color: #667eea;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>No Preview Available</h1>
-    <p>Open this preview from the IDE to see your live code here.</p>
+    <p>This preview hasn't been published yet. Open it from the IDE to see your live code.</p>
     <span class="badge">Open from IDE Preview Panel</span>
   </div>
 </body>
+</html>
+  `;
+
+  const loadingHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #667eea;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>Loading preview...</body>
 </html>
   `;
 
@@ -85,15 +137,17 @@ const PreviewApp = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Live Preview</span>
-          <span className={`w-2 h-2 rounded-full ${previewCode ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
+          <span className="text-xs text-muted-foreground">
+            {loading ? 'Loading...' : previewCode ? 'Live Preview' : 'Not Published'}
+          </span>
+          <span className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-500' : previewCode ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
         </div>
       </header>
 
       {/* Preview iframe */}
       <div className="flex-1 bg-[#1a1a2e]">
         <iframe
-          srcDoc={previewCode || fallbackHtml}
+          srcDoc={loading ? loadingHtml : (previewCode || fallbackHtml)}
           className="w-full h-full border-0"
           title={`${appName} Preview`}
           sandbox="allow-scripts allow-modals allow-forms"
