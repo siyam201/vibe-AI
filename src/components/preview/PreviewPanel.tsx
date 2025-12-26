@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface FileMap {
   [path: string]: string;
@@ -234,11 +235,31 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
     }
   }, [html, css, js, isLive, handleRefresh]);
 
-  const handleOpenExternal = () => {
-    // Store the live code in sessionStorage and open the preview route
+  const handleOpenExternal = async () => {
+    // Save the live code to database for public access
     const sandboxCode = generateSandboxCode();
-    sessionStorage.setItem(`preview-${safeName}`, sandboxCode);
-    window.open(`/preview/apps/${safeName}`, '_blank');
+    
+    try {
+      const { error } = await supabase
+        .from('app_previews')
+        .upsert({ 
+          app_name: safeName, 
+          html_content: sandboxCode 
+        }, { 
+          onConflict: 'app_name' 
+        });
+      
+      if (error) {
+        console.error('Failed to save preview:', error);
+        toast.error('Failed to save preview');
+        return;
+      }
+      
+      window.open(`/preview/apps/${safeName}`, '_blank');
+    } catch (err) {
+      console.error('Error saving preview:', err);
+      toast.error('Failed to save preview');
+    }
   };
 
   const handleCopyUrl = () => {
