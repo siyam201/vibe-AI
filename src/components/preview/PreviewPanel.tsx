@@ -5,17 +5,17 @@ import {
   Smartphone, 
   Monitor, 
   Tablet, 
-  Maximize2,
   Globe,
   Lock,
-  X,
-  Minus,
-  Square,
   Play,
-  Pause
+  Copy,
+  Check,
+  Rocket,
+  X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface FileMap {
   [path: string]: string;
@@ -25,37 +25,53 @@ interface PreviewPanelProps {
   html: string;
   css: string;
   js: string;
-  files?: FileMap; // All project files for resolving imports
+  files?: FileMap;
+  projectName?: string;
   onConsoleLog?: (log: { type: 'log' | 'error' | 'warn' | 'info'; message: string }) => void;
 }
 
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
-export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: PreviewPanelProps) => {
+export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app', onConsoleLog }: PreviewPanelProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLive, setIsLive] = useState(true);
-  const [url, setUrl] = useState('localhost:3000');
+  const [copied, setCopied] = useState(false);
+  const [isDeployed, setIsDeployed] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
 
-  // Resolve linked files from HTML (styles.css, main.js, etc.)
+  // Generate URL-safe project name
+  const generateSafeUrl = (name: string): string => {
+    const cleanName = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return cleanName || `app-${Date.now().toString(36)}`;
+  };
+
+  const safeName = generateSafeUrl(projectName);
+  const previewUrl = `${safeName}.vibecode.app`;
+  const fullUrl = `https://${previewUrl}`;
+
+  // Resolve linked files from HTML
   const resolveLinkedFiles = useCallback((htmlContent: string): { resolvedCss: string; resolvedJs: string } => {
     let resolvedCss = css;
     let resolvedJs = js;
 
-    // Find and resolve CSS links
     const cssLinkRegex = /<link[^>]+href=["']([^"']+\.css)["'][^>]*>/gi;
     let match;
     while ((match = cssLinkRegex.exec(htmlContent)) !== null) {
       const cssPath = match[1];
-      // Try to find the file in the files map
       const cssContent = files[cssPath] || files[`src/${cssPath}`] || files[cssPath.replace('./', '')];
       if (cssContent) {
         resolvedCss = cssContent;
       }
     }
 
-    // Find and resolve JS scripts
     const jsScriptRegex = /<script[^>]+src=["']([^"']+\.js)["'][^>]*><\/script>/gi;
     while ((match = jsScriptRegex.exec(htmlContent)) !== null) {
       const jsPath = match[1];
@@ -69,22 +85,18 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
   }, [css, js, files]);
 
   const generateSandboxCode = useCallback(() => {
-    // Resolve linked files
     const { resolvedCss, resolvedJs } = resolveLinkedFiles(html);
 
-    // Extract body content from HTML if it has full document structure
     let bodyContent = html;
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     if (bodyMatch) {
       bodyContent = bodyMatch[1];
     }
 
-    // Remove script and link tags since we'll inject them properly
     bodyContent = bodyContent
       .replace(/<script[^>]*src=["'][^"']+["'][^>]*><\/script>/gi, '')
       .replace(/<link[^>]+href=["'][^"']+\.css["'][^>]*>/gi, '');
 
-    // Extract head content for title/meta (excluding link/script tags)
     let headContent = '';
     const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
     if (headMatch) {
@@ -94,7 +106,6 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
     }
 
-    // Escape any script closing tags in user code to prevent breaking
     const safeJs = resolvedJs.replace(/<\/script>/gi, '<\\/script>');
 
     return `
@@ -119,7 +130,6 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
   ${bodyContent}
   
   <script>
-    // Sandbox console capture
     (function() {
       const originalConsole = {
         log: console.log,
@@ -166,7 +176,6 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
         sendToParent('info', args);
       };
       
-      // Capture unhandled errors
       window.onerror = function(msg, url, line, col, error) {
         sendToParent('error', ['Uncaught Error: ' + msg + ' (line ' + line + ')']);
         return false;
@@ -177,7 +186,6 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
       };
     })();
     
-    // User code execution
     try {
       ${safeJs}
     } catch(e) {
@@ -201,7 +209,6 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
     setTimeout(() => setIsRefreshing(false), 300);
   }, [generateSandboxCode]);
 
-  // Listen for console messages from sandbox
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'sandbox-console' && onConsoleLog) {
@@ -216,12 +223,10 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
     return () => window.removeEventListener('message', handleMessage);
   }, [onConsoleLog]);
 
-  // Initial render on mount
   useEffect(() => {
     handleRefresh();
   }, []);
 
-  // Auto-refresh when code changes (if live mode is on)
   useEffect(() => {
     if (isLive) {
       const timeout = setTimeout(handleRefresh, 500);
@@ -235,10 +240,20 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
     window.open(url, '_blank');
   };
 
-  const handleFullscreen = () => {
-    if (iframeRef.current) {
-      iframeRef.current.requestFullscreen();
-    }
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(fullUrl);
+    setCopied(true);
+    toast.success('URL copied to clipboard!');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDeploy = () => {
+    setIsDeploying(true);
+    setTimeout(() => {
+      setIsDeploying(false);
+      setIsDeployed(true);
+      toast.success(`Deployed to ${fullUrl}`);
+    }, 2000);
   };
 
   const deviceWidths = {
@@ -255,90 +270,123 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
 
   return (
     <div className="h-full flex flex-col bg-card">
-      {/* Sandbox Preview Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-xs text-muted-foreground">Sandbox Preview</span>
+      {/* Sandbox Preview Header with URL */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-foreground">Sandbox Preview</span>
+          {isDeployed && (
+            <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded">LIVE</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDeploy}
+            disabled={isDeploying}
+            className="h-6 text-xs gap-1"
+          >
+            {isDeploying ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <Rocket className="w-3 h-3" />
+            )}
+            {isDeploying ? 'Deploying...' : 'Deploy'}
+          </Button>
+        </div>
       </div>
 
-      {/* Browser Chrome */}
-      <div className="bg-secondary border-b border-border">
-        <div className="flex items-center gap-3 px-3 py-2">
+      {/* Browser Chrome with URL Bar */}
+      <div className="bg-background border-b border-border">
+        <div className="flex items-center gap-2 px-3 py-2">
           {/* Traffic Lights */}
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-destructive cursor-pointer" />
-            <div className="w-3 h-3 rounded-full bg-warning cursor-pointer" />
-            <div className="w-3 h-3 rounded-full bg-success cursor-pointer" />
+            <div className="w-2.5 h-2.5 rounded-full bg-destructive" />
+            <div className="w-2.5 h-2.5 rounded-full bg-warning" />
+            <div className="w-2.5 h-2.5 rounded-full bg-success" />
           </div>
 
-          {/* URL Bar */}
-          <div className="flex-1 flex items-center gap-2 bg-background rounded-md px-3 py-1.5">
+          {/* Navigation Buttons */}
+          <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="icon"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="h-5 w-5 p-0"
+              className="h-6 w-6"
             >
               <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
             </Button>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Lock className="w-3 h-3 text-success" />
-              <Globe className="w-3 h-3" />
-              <span>{url}</span>
+          </div>
+
+          {/* URL Bar */}
+          <div className="flex-1 flex items-center gap-2 bg-secondary rounded-md px-3 py-1.5 cursor-pointer hover:bg-secondary/80 transition-colors" onClick={handleCopyUrl}>
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <Lock className="w-3 h-3 text-success flex-shrink-0" />
+              <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+              <span className="text-xs text-muted-foreground truncate">{previewUrl}</span>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => { e.stopPropagation(); handleCopyUrl(); }}
+              className="h-5 w-5 p-0 flex-shrink-0"
+            >
+              {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+            </Button>
           </div>
 
           {/* Device Mode */}
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 border-l border-border pl-2">
             <Button
               variant={deviceMode === 'desktop' ? 'secondary' : 'ghost'}
               size="icon"
               onClick={() => setDeviceMode('desktop')}
-              className="h-7 w-7"
+              className="h-6 w-6"
             >
-              <Monitor className="w-4 h-4" />
+              <Monitor className="w-3.5 h-3.5" />
             </Button>
             <Button
               variant={deviceMode === 'tablet' ? 'secondary' : 'ghost'}
               size="icon"
               onClick={() => setDeviceMode('tablet')}
-              className="h-7 w-7"
+              className="h-6 w-6"
             >
-              <Tablet className="w-4 h-4" />
+              <Tablet className="w-3.5 h-3.5" />
             </Button>
             <Button
               variant={deviceMode === 'mobile' ? 'secondary' : 'ghost'}
               size="icon"
               onClick={() => setDeviceMode('mobile')}
-              className="h-7 w-7"
+              className="h-6 w-6"
             >
-              <Smartphone className="w-4 h-4" />
+              <Smartphone className="w-3.5 h-3.5" />
             </Button>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 border-l border-border pl-2">
             <Button
               size="icon"
               onClick={handleRefresh}
-              className="h-7 w-7 bg-success text-white hover:bg-success/90"
+              className="h-6 w-6 bg-success text-white hover:bg-success/90"
             >
-              <Play className="w-4 h-4" />
+              <Play className="w-3.5 h-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
               onClick={handleOpenExternal}
-              className="h-7 w-7"
+              className="h-6 w-6"
             >
-              <ExternalLink className="w-4 h-4" />
+              <ExternalLink className="w-3.5 h-3.5" />
             </Button>
           </div>
         </div>
       </div>
 
       {/* Preview Content */}
-      <div className="flex-1 bg-background overflow-auto flex items-start justify-center p-4">
+      <div className="flex-1 bg-[#1a1a2e] overflow-auto flex items-start justify-center p-4">
         <div
           className={cn(
             "bg-background rounded-lg overflow-hidden shadow-2xl transition-all duration-300",
@@ -360,12 +408,21 @@ export const PreviewPanel = ({ html, css, js, files = {}, onConsoleLog }: Previe
       </div>
       
       {/* Status Bar */}
-      <div className="h-7 bg-card border-t border-border flex items-center justify-between px-3 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <span className={cn("w-2 h-2 rounded-full", isLive ? "bg-success" : "bg-muted")} />
-          <span>Live</span>
+      <div className="h-6 bg-card border-t border-border flex items-center justify-between px-3 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className={cn("w-1.5 h-1.5 rounded-full", isLive ? "bg-success" : "bg-muted")} />
+            <span>Live Preview</span>
+          </div>
+          <span className="text-muted-foreground/50">|</span>
+          <span>{deviceMode.charAt(0).toUpperCase() + deviceMode.slice(1)}</span>
         </div>
-        <span>{deviceMode.charAt(0).toUpperCase() + deviceMode.slice(1)} view</span>
+        {isDeployed && (
+          <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
+            <ExternalLink className="w-3 h-3" />
+            {previewUrl}
+          </a>
+        )}
       </div>
     </div>
   );

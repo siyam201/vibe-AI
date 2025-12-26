@@ -588,6 +588,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
               css={css}
               js={js}
               files={fileMap}
+              projectName={currentProject?.name || projectName}
               onConsoleLog={(log) => console.log(log)}
             />
           )}
