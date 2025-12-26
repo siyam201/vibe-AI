@@ -276,13 +276,15 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
     ));
   };
 
-  // Get HTML/CSS/JS for preview
+  // Get HTML/CSS/JS for preview - based on active tab or first available HTML
   const getPreviewCode = () => {
     let html = '';
     let css = '';
     let js = '';
     const fileMap: { [path: string]: string } = {};
     const allCss: string[] = [];
+    const allJs: string[] = [];
+    const allHtmlFiles: { name: string; content: string; path: string }[] = [];
 
     const findContent = (items: FileItem[], parentPath = '') => {
       items.forEach(item => {
@@ -297,21 +299,57 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
           if (item.extension === 'css') {
             allCss.push(item.content);
           }
+          
+          // Collect all JS files
+          if (item.extension === 'js') {
+            allJs.push(item.content);
+          }
+          
+          // Collect all HTML files
+          if (item.extension === 'html') {
+            allHtmlFiles.push({ name: item.name, content: item.content, path: currentPath });
+          }
         }
         
-        // Primary files
-        if (item.name === 'index.html' && item.content) html = item.content;
-        if (item.name === 'styles.css' && item.content) css = item.content;
-        if (item.name === 'main.js' && item.content) js = item.content;
         if (item.children) findContent(item.children, currentPath);
       });
     };
     findContent(files);
     
-    // Combine all CSS (styles.css first, then others)
-    const combinedCss = allCss.length > 0 ? allCss.join('\n\n') : css;
+    // Determine which HTML to show:
+    // 1. If active tab is an HTML file, show that
+    // 2. Otherwise, prioritize: index.html > login.html > first available HTML
+    const activeTab = openTabs.find(t => t.id === activeTabId);
+    if (activeTab && activeTab.name.endsWith('.html')) {
+      const matchedHtml = allHtmlFiles.find(h => h.name === activeTab.name || h.path === activeTab.name);
+      if (matchedHtml) {
+        html = matchedHtml.content;
+      }
+    }
     
-    return { html, css: combinedCss, js, fileMap };
+    if (!html) {
+      // Priority order for HTML files
+      const priorityOrder = ['index.html', 'login.html', 'signup.html', 'dashboard.html'];
+      for (const priority of priorityOrder) {
+        const found = allHtmlFiles.find(h => h.name === priority);
+        if (found) {
+          html = found.content;
+          break;
+        }
+      }
+      // If still no HTML, use first available
+      if (!html && allHtmlFiles.length > 0) {
+        html = allHtmlFiles[0].content;
+      }
+    }
+    
+    // Combine all CSS
+    const combinedCss = allCss.join('\n\n');
+    
+    // Combine all JS
+    const combinedJs = allJs.join('\n\n');
+    
+    return { html, css: combinedCss, js: combinedJs, fileMap };
   };
 
   const { html, css, js, fileMap } = getPreviewCode();
