@@ -54,8 +54,8 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   };
 
   const safeName = generateSafeUrl(projectName);
-  const previewUrl = `localhost:5173/${safeName}`;
-  const fullUrl = `http://${previewUrl}`;
+  const previewUrl = `vibe-nove-ai.lovable.app/preview/apps/${safeName}`;
+  const fullUrl = `https://${previewUrl}`;
 
   // Resolve linked files from HTML
   const resolveLinkedFiles = useCallback((htmlContent: string): { resolvedCss: string; resolvedJs: string } => {
