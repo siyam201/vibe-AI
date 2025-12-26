@@ -235,6 +235,11 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   }, [html, css, js, isLive, handleRefresh]);
 
   const handleOpenExternal = () => {
+    // Open the actual preview route
+    window.open(`/preview/apps/${safeName}`, '_blank');
+  };
+
+  const handleOpenBlob = () => {
     const blob = new Blob([generateSandboxCode()], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');

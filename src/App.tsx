@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AuthTest from "./pages/AuthTest";
 import ResetPassword from "./pages/ResetPassword";
+import PreviewApp from "./pages/PreviewApp";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/auth-test" element={<AuthTest />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/preview/apps/:appName" element={<PreviewApp />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
