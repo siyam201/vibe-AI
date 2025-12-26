@@ -235,10 +235,10 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   }, [html, css, js, isLive, handleRefresh]);
 
   const handleOpenExternal = () => {
-    // Open the actual live code as blob URL
-    const blob = new Blob([generateSandboxCode()], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
+    // Store the live code in sessionStorage and open the preview route
+    const sandboxCode = generateSandboxCode();
+    sessionStorage.setItem(`preview-${safeName}`, sandboxCode);
+    window.open(`/preview/apps/${safeName}`, '_blank');
   };
 
   const handleCopyUrl = () => {

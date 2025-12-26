@@ -1,12 +1,22 @@
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Code, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Code } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useEffect, useState } from 'react';
 
 const PreviewApp = () => {
   const { appName } = useParams<{ appName: string }>();
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
 
-  // Sample preview content - in a real app, this would load from database
-  const sampleHtml = `
+  useEffect(() => {
+    // Load the preview code from sessionStorage
+    const storedCode = sessionStorage.getItem(`preview-${appName}`);
+    if (storedCode) {
+      setPreviewCode(storedCode);
+    }
+  }, [appName]);
+
+  // Fallback content if no code is stored
+  const fallbackHtml = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,23 +36,16 @@ const PreviewApp = () => {
       justify-content: center;
       padding: 2rem;
     }
-    .container {
-      text-align: center;
-      max-width: 600px;
-    }
+    .container { text-align: center; max-width: 600px; }
     h1 {
-      font-size: 2.5rem;
+      font-size: 2rem;
       margin-bottom: 1rem;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    p {
-      color: #a0aec0;
-      font-size: 1.1rem;
-      margin-bottom: 2rem;
-    }
+    p { color: #a0aec0; font-size: 1rem; margin-bottom: 1.5rem; }
     .badge {
       display: inline-block;
       background: rgba(102, 126, 234, 0.2);
@@ -56,9 +59,9 @@ const PreviewApp = () => {
 </head>
 <body>
   <div class="container">
-    <h1>${appName || 'My App'}</h1>
-    <p>This is a live preview of your application. Edit your code in the IDE to see changes here.</p>
-    <span class="badge">✨ Powered by Vibe Code</span>
+    <h1>No Preview Available</h1>
+    <p>Open this preview from the IDE to see your live code here.</p>
+    <span class="badge">Open from IDE Preview Panel</span>
   </div>
 </body>
 </html>
@@ -83,14 +86,14 @@ const PreviewApp = () => {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Live Preview</span>
-          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+          <span className={`w-2 h-2 rounded-full ${previewCode ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
         </div>
       </header>
 
       {/* Preview iframe */}
       <div className="flex-1 bg-[#1a1a2e]">
         <iframe
-          srcDoc={sampleHtml}
+          srcDoc={previewCode || fallbackHtml}
           className="w-full h-full border-0"
           title={`${appName} Preview`}
           sandbox="allow-scripts allow-modals allow-forms"
