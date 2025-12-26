@@ -29,13 +29,31 @@ export const DeployPanel = ({ isOpen, onClose, projectName }: DeployPanelProps) 
 
   if (!isOpen) return null;
 
+  // Generate a clean URL-safe name
+  const generateSafeUrl = (name: string): string => {
+    const cleanName = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
+      .replace(/\s+/g, '-')         // Replace spaces with hyphens
+      .replace(/-+/g, '-')          // Replace multiple hyphens with single
+      .replace(/^-|-$/g, '');       // Remove leading/trailing hyphens
+    
+    // Fallback to a generated name if empty
+    if (!cleanName) {
+      return `app-${Date.now().toString(36)}`;
+    }
+    return cleanName;
+  };
+
   const handleDeploy = async () => {
     setStatus('deploying');
     
     // Simulate deployment
     setTimeout(() => {
       setStatus('success');
-      setDeployUrl(`https://${projectName.toLowerCase().replace(/\s+/g, '-')}.vibecode.app`);
+      const safeName = generateSafeUrl(projectName);
+      setDeployUrl(`https://${safeName}.vibecode.app`);
     }, 3000);
   };
 
