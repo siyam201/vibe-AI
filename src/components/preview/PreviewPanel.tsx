@@ -320,7 +320,11 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
           </div>
 
           {/* URL Bar */}
-          <div className="flex-1 flex items-center gap-2 bg-secondary rounded-md px-3 py-1.5 cursor-pointer hover:bg-secondary/80 transition-colors" onClick={handleCopyUrl}>
+          <div 
+            className="flex-1 flex items-center gap-2 bg-secondary rounded-md px-3 py-1.5 cursor-pointer hover:bg-secondary/80 transition-colors" 
+            onClick={handleOpenExternal}
+            title="Click to open preview in new tab"
+          >
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
               <Lock className="w-3 h-3 text-success flex-shrink-0" />
               <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />
@@ -331,6 +335,7 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
               size="icon"
               onClick={(e) => { e.stopPropagation(); handleCopyUrl(); }}
               className="h-5 w-5 p-0 flex-shrink-0"
+              title="Copy URL"
             >
               {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
             </Button>
