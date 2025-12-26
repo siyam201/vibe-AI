@@ -554,7 +554,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
             />
           )}
           {rightPanel === 'git' && (
-            <GitPanel />
+            <GitPanel files={files} projectName={currentProject?.name || projectName} />
           )}
         </div>
       </div>
