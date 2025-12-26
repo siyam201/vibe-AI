@@ -16,7 +16,12 @@ import {
   FileMinus,
   Circle,
   ArrowUpRight,
-  ArrowDownLeft
+  ArrowDownLeft,
+  Github,
+  Link2,
+  ExternalLink,
+  Archive,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +40,28 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import JSZip from 'jszip';
+
+interface FileItem {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  extension?: string;
+  content?: string;
+  children?: FileItem[];
+}
+
+interface GitPanelProps {
+  files?: FileItem[];
+  projectName?: string;
+}
 
 interface ChangedFile {
   id: string;
@@ -79,7 +106,7 @@ const mockBranches: Branch[] = [
   { name: 'origin/main', isCurrent: false, isRemote: true },
 ];
 
-export const GitPanel = () => {
+export const GitPanel = ({ files = [], projectName = 'my-project' }: GitPanelProps) => {
   const [changedFiles, setChangedFiles] = useState<ChangedFile[]>(mockChangedFiles);
   const [commits] = useState<Commit[]>(mockCommits);
   const [branches] = useState<Branch[]>(mockBranches);
@@ -87,6 +114,16 @@ export const GitPanel = () => {
   const [showChanges, setShowChanges] = useState(true);
   const [showCommits, setShowCommits] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // GitHub Connect state
+  const [showGitHubConnect, setShowGitHubConnect] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [repoUrl, setRepoUrl] = useState('');
+  const [repoName, setRepoName] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
+  
+  // Download ZIP state
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const currentBranch = branches.find(b => b.isCurrent)?.name || 'main';
   const stagedFiles = changedFiles.filter(f => f.staged);
@@ -146,6 +183,10 @@ export const GitPanel = () => {
   };
 
   const handlePush = () => {
+    if (!isConnected) {
+      setShowGitHubConnect(true);
+      return;
+    }
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
@@ -154,6 +195,10 @@ export const GitPanel = () => {
   };
 
   const handlePull = () => {
+    if (!isConnected) {
+      setShowGitHubConnect(true);
+      return;
+    }
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
@@ -167,6 +212,71 @@ export const GitPanel = () => {
       setIsLoading(false);
       toast.success('Repository refreshed');
     }, 500);
+  };
+
+  // GitHub Connect handler
+  const handleGitHubConnect = () => {
+    if (!repoName.trim()) {
+      toast.error('Please enter a repository name');
+      return;
+    }
+    
+    setIsConnecting(true);
+    setTimeout(() => {
+      const cleanRepoName = repoName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      setRepoUrl(`https://github.com/user/${cleanRepoName}`);
+      setIsConnected(true);
+      setIsConnecting(false);
+      setShowGitHubConnect(false);
+      toast.success(`Connected to GitHub: ${cleanRepoName}`);
+    }, 1500);
+  };
+
+  // Download ZIP handler
+  const handleDownloadZip = async () => {
+    if (files.length === 0) {
+      toast.error('No files to download');
+      return;
+    }
+    
+    setIsDownloading(true);
+    
+    try {
+      const zip = new JSZip();
+      
+      // Recursively add files to zip
+      const addFilesToZip = (items: FileItem[], parentPath = '') => {
+        items.forEach(item => {
+          const currentPath = parentPath ? `${parentPath}/${item.name}` : item.name;
+          
+          if (item.type === 'file' && item.content !== undefined) {
+            zip.file(currentPath, item.content);
+          } else if (item.type === 'folder' && item.children) {
+            addFilesToZip(item.children, currentPath);
+          }
+        });
+      };
+      
+      addFilesToZip(files);
+      
+      // Generate and download zip
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectName.toLowerCase().replace(/\s+/g, '-')}-source.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Project downloaded as ZIP');
+    } catch (error) {
+      console.error('Error creating zip:', error);
+      toast.error('Failed to create ZIP file');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const formatDate = (date: Date) => {
@@ -390,6 +500,51 @@ export const GitPanel = () => {
 
       {/* Footer Actions */}
       <div className="p-3 border-t border-border space-y-2">
+        {/* GitHub Connection Status */}
+        {isConnected ? (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/20">
+            <Github className="w-4 h-4 text-green-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-green-400 font-medium">Connected</p>
+              <p className="text-[10px] text-muted-foreground truncate">{repoUrl}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => window.open(repoUrl, '_blank')}
+            >
+              <ExternalLink className="w-3 h-3" />
+            </Button>
+          </div>
+        ) : (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full gap-2"
+            onClick={() => setShowGitHubConnect(true)}
+          >
+            <Github className="w-3.5 h-3.5" />
+            Connect to GitHub
+          </Button>
+        )}
+
+        {/* Download ZIP */}
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="w-full gap-2"
+          onClick={handleDownloadZip}
+          disabled={isDownloading || files.length === 0}
+        >
+          {isDownloading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Archive className="w-3.5 h-3.5" />
+          )}
+          Download ZIP
+        </Button>
+
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" size="sm" className="gap-2">
             <GitPullRequest className="w-3.5 h-3.5" />
@@ -401,6 +556,63 @@ export const GitPanel = () => {
           </Button>
         </div>
       </div>
+
+      {/* GitHub Connect Dialog */}
+      <Dialog open={showGitHubConnect} onOpenChange={setShowGitHubConnect}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Github className="w-5 h-5" />
+              Connect to GitHub
+            </DialogTitle>
+            <DialogDescription>
+              Create a new repository or connect to an existing one.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <label className="text-sm text-muted-foreground">Repository Name</label>
+              <Input
+                placeholder="my-awesome-project"
+                value={repoName}
+                onChange={(e) => setRepoName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Will create: github.com/user/{repoName.toLowerCase().replace(/\s+/g, '-') || 'repo-name'}
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => setShowGitHubConnect(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 gap-2 bg-[#238636] hover:bg-[#2ea043]"
+                onClick={handleGitHubConnect}
+                disabled={isConnecting}
+              >
+                {isConnecting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Link2 className="w-4 h-4" />
+                )}
+                {isConnecting ? 'Connecting...' : 'Connect'}
+              </Button>
+            </div>
+
+            <div className="pt-4 border-t border-border">
+              <p className="text-xs text-muted-foreground text-center">
+                Or connect an existing repository by entering the repo URL
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
