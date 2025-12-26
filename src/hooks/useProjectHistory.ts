@@ -21,77 +21,107 @@ export type { FileItem };
 // Legacy type alias for backwards compatibility
 export type ProjectHistoryItem = Project;
 
-// Default files for new projects
+// Default files for new projects (Node.js style like Replit)
 export const getDefaultFiles = (): FileItem[] => [
   {
-    id: 'src',
-    name: 'src',
+    id: 'index-js',
+    name: 'index.js',
+    type: 'file',
+    extension: 'js',
+    content: `const express = require('express');
+const app = express();
+const port = 3000;
+
+app.get('/', (req, res) => {
+  res.send('Hello World!');
+});
+
+app.listen(port, () => {
+  console.log(\`Server running at http://localhost:\${port}\`);
+});`,
+  },
+  {
+    id: 'package-json',
+    name: 'package.json',
+    type: 'file',
+    extension: 'json',
+    content: `{
+  "name": "my-app",
+  "version": "1.0.0",
+  "description": "A Node.js project",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}`,
+  },
+  {
+    id: 'gitignore',
+    name: '.gitignore',
+    type: 'file',
+    extension: 'gitignore',
+    content: `node_modules/
+.env
+.DS_Store
+*.log
+dist/
+.cache/`,
+  },
+  {
+    id: 'replit',
+    name: '.replit',
+    type: 'file',
+    extension: 'replit',
+    content: `run = "npm start"
+entrypoint = "index.js"
+
+[nix]
+channel = "stable-23_05"
+
+[deployment]
+run = ["sh", "-c", "npm start"]`,
+  },
+  {
+    id: 'packager-files',
+    name: 'Packager files',
     type: 'folder',
     children: [
       {
-        id: 'index-html',
-        name: 'index.html',
+        id: 'package-lock-json',
+        name: 'package-lock.json',
         type: 'file',
-        extension: 'html',
-        content: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My App</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <div class="container">
-    <h1>Welcome to My App</h1>
-    <p>Start building something amazing!</p>
-  </div>
-  <script src="app.js"></script>
-</body>
-</html>`,
-      },
-      {
-        id: 'styles-css',
-        name: 'styles.css',
-        type: 'file',
-        extension: 'css',
-        content: `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #0f172a;
-  color: #f8fafc;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.container {
-  text-align: center;
-  padding: 2rem;
-}
-
-h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
-}
-
-p {
-  color: #94a3b8;
+        extension: 'json',
+        content: `{
+  "name": "my-app",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {}
 }`,
       },
+    ],
+  },
+  {
+    id: 'config-files',
+    name: 'Config files',
+    type: 'folder',
+    children: [
       {
-        id: 'app-js',
-        name: 'app.js',
+        id: 'env-example',
+        name: '.env.example',
         type: 'file',
-        extension: 'js',
-        content: `// Your JavaScript code here
-console.log('App initialized!');`,
+        extension: 'env',
+        content: `# Environment Variables
+PORT=3000
+DATABASE_URL=
+API_KEY=`,
       },
     ],
   },
@@ -102,11 +132,20 @@ console.log('App initialized!');`,
     extension: 'md',
     content: `# My App
 
-A new project created with VibeCode.
+A Node.js project created with VibeCode.
 
 ## Getting Started
 
-Edit the files in the src folder to build your app.`,
+\`\`\`bash
+npm install
+npm start
+\`\`\`
+
+## Development
+
+\`\`\`bash
+npm run dev
+\`\`\``,
   },
 ];
 
