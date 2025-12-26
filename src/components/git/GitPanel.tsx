@@ -291,9 +291,10 @@ export const GitPanel = ({ files = [], projectName = 'my-project' }: GitPanelPro
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1a1a2e]">
-      {/* Header */}
-      <div className="p-3 border-b border-border">
+    <>
+      <div className="h-full flex flex-col bg-[#1a1a2e]">
+        {/* Header */}
+        <div className="p-3 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <GitBranch className="w-4 h-4 text-primary" />
@@ -556,10 +557,11 @@ export const GitPanel = ({ files = [], projectName = 'my-project' }: GitPanelPro
           </Button>
         </div>
       </div>
+      </div>
 
       {/* GitHub Connect Dialog */}
       <Dialog open={showGitHubConnect} onOpenChange={setShowGitHubConnect}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md z-[100]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Github className="w-5 h-5" />
@@ -613,6 +615,6 @@ export const GitPanel = ({ files = [], projectName = 'my-project' }: GitPanelPro
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
