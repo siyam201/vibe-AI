@@ -572,7 +572,16 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
         isOpen={showShare}
         onClose={() => setShowShare(false)}
         projectName={projectName}
-        projectUrl={`https://${projectName.toLowerCase().replace(/\s+/g, '-')}.vibecode.app`}
+        projectUrl={`https://${(() => {
+          const cleanName = projectName
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          return cleanName || `app-${Date.now().toString(36)}`;
+        })()}.vibecode.app`}
       />
       <SettingsPanel
         isOpen={showSettings}
