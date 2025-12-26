@@ -54,7 +54,7 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   };
 
   const safeName = generateSafeUrl(projectName);
-  const previewUrl = `${safeName}.vibe-nove-ai.lovable.app`;
+  const previewUrl = `preview.lovable.dev/${safeName}`;
   const fullUrl = `https://${previewUrl}`;
 
   // Resolve linked files from HTML
