@@ -8,6 +8,7 @@ const PreviewApp = () => {
   const { appName } = useParams<{ appName: string }>();
   const [previewCode, setPreviewCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [iframeKey, setIframeKey] = useState(0);
 
   const loadPreview = async () => {
     if (!appName) {
@@ -27,6 +28,7 @@ const PreviewApp = () => {
         console.error('Error loading preview:', error);
       } else if (data) {
         setPreviewCode(data.html_content);
+        setIframeKey(prev => prev + 1); // Force iframe refresh
       }
     } catch (err) {
       console.error('Failed to load preview:', err);
@@ -42,6 +44,23 @@ const PreviewApp = () => {
   const handleOpenExternal = () => {
     const currentUrl = window.location.href;
     window.open(currentUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  // Inject scroll reset script into the HTML content
+  const processHtmlContent = (html: string) => {
+    const scrollResetScript = `
+      <script>
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      </script>
+    `;
+    
+    // Insert before closing body tag or at end
+    if (html.includes('</body>')) {
+      return html.replace('</body>', scrollResetScript + '</body>');
+    }
+    return html + scrollResetScript;
   };
 
   // Fallback content if no code is stored
@@ -159,13 +178,14 @@ const PreviewApp = () => {
       </header>
 
       {/* Preview iframe - full screen responsive */}
-      <div className="flex-1 bg-background overflow-auto">
+      <div className="flex-1 bg-background overflow-hidden">
         <iframe
-          srcDoc={loading ? loadingHtml : (previewCode || fallbackHtml)}
-          className="w-full h-full border-0 min-h-full"
+          key={iframeKey}
+          srcDoc={loading ? loadingHtml : processHtmlContent(previewCode || fallbackHtml)}
+          className="w-full h-full border-0"
           title={`${appName} Preview`}
           sandbox="allow-scripts allow-modals allow-forms allow-same-origin"
-          style={{ minHeight: '100%', display: 'block' }}
+          style={{ display: 'block' }}
         />
       </div>
 
