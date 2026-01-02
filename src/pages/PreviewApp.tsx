@@ -145,7 +145,7 @@ const PreviewApp = () => {
       </header>
 
       {/* Preview iframe */}
-      <div className="flex-1 bg-[#1a1a2e]">
+      <div className="flex-1 bg-background">
         <iframe
           srcDoc={loading ? loadingHtml : (previewCode || fallbackHtml)}
           className="w-full h-full border-0"
