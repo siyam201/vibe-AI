@@ -118,11 +118,14 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   ${headContent}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
+    html, body { 
       font-family: 'Inter', system-ui, -apple-system, sans-serif; 
       background: #0f1419; 
       color: #e7e9ea; 
       min-height: 100vh;
+      height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
     }
     ${resolvedCss}
   </style>
