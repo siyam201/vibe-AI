@@ -159,12 +159,13 @@ const PreviewApp = () => {
       </header>
 
       {/* Preview iframe - full screen responsive */}
-      <div className="flex-1 bg-background overflow-hidden">
+      <div className="flex-1 bg-background overflow-auto">
         <iframe
           srcDoc={loading ? loadingHtml : (previewCode || fallbackHtml)}
-          className="w-full h-full border-0"
+          className="w-full h-full border-0 min-h-full"
           title={`${appName} Preview`}
-          sandbox="allow-scripts allow-modals allow-forms"
+          sandbox="allow-scripts allow-modals allow-forms allow-same-origin"
+          style={{ minHeight: '100%', display: 'block' }}
         />
       </div>
 
