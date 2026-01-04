@@ -10,8 +10,10 @@ import {
   User,
   Database,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Terminal
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -36,6 +38,7 @@ const navItems = [
   { id: 'apps', label: 'Apps', icon: FolderOpen },
   { id: 'published', label: 'Published apps', icon: Globe },
   { id: 'account', label: 'Account & DB', icon: Database },
+  { id: 'sandbox', label: 'Code Sandbox', icon: Terminal, route: '/sandbox' },
 ];
 
 export const ReplitSidebar = ({ 
@@ -47,8 +50,16 @@ export const ReplitSidebar = ({
   isCollapsed = false,
   onToggleCollapse
 }: ReplitSidebarProps) => {
-
+  const navigate = useNavigate();
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'User';
+
+  const handleNavClick = (item: typeof navItems[0]) => {
+    if (item.route) {
+      navigate(item.route);
+    } else {
+      onNavChange(item.id);
+    }
+  };
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -166,12 +177,12 @@ export const ReplitSidebar = ({
         {/* Main Navigation */}
         <nav className="flex-1 overflow-y-auto scrollbar-thin p-2">
           <div className="space-y-0.5">
-            {navItems.map((item) => (
+          {navItems.map((item) => (
               isCollapsed ? (
                 <Tooltip key={item.id}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => onNavChange(item.id)}
+                      onClick={() => handleNavClick(item)}
                       className={cn(
                         "w-full flex justify-center py-2.5 rounded-lg transition-all",
                         activeNav === item.id 
@@ -189,7 +200,7 @@ export const ReplitSidebar = ({
               ) : (
                 <button
                   key={item.id}
-                  onClick={() => onNavChange(item.id)}
+                  onClick={() => handleNavClick(item)}
                   className={cn(
                     "nav-item w-full",
                     activeNav === item.id && "active"
