@@ -2,12 +2,13 @@ import {
   ChevronDown, 
   Plus,
   Monitor,
-  Terminal,
+  Terminal as TerminalIcon,
   FolderOpen,
   X,
   Search,
   Users,
-  Rocket
+  Rocket,
+  SquareTerminal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -91,6 +92,15 @@ export const ReplitTopBar = ({
         </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
           <Users className="w-4 h-4" />
+        </Button>
+        <Button 
+          variant="outline"
+          size="sm"
+          className="h-8 gap-2"
+          onClick={() => window.open('/sandbox', '_blank')}
+        >
+          <SquareTerminal className="w-4 h-4" />
+          Sandbox
         </Button>
         <Button 
           onClick={onPublish}
