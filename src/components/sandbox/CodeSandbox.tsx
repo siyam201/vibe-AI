@@ -11,7 +11,10 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
-  Maximize2
+  Maximize2,
+  Code,
+  Rocket,
+  CheckCircle
 } from 'lucide-react';
 
 interface CodeSandboxProps {
@@ -126,18 +129,114 @@ const CodeSandbox = ({
   // Check cross-origin isolation
   const isCrossOriginIsolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
 
+  // Static demo HTML for when WebContainer isn't available
+  const staticDemoHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: 'Inter', system-ui, sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+        }
+        .container { text-align: center; padding: 2rem; }
+        h1 { font-size: 2.5rem; margin-bottom: 1rem; }
+        p { font-size: 1.1rem; opacity: 0.9; margin-bottom: 1.5rem; }
+        .badge {
+          background: rgba(255,255,255,0.2);
+          padding: 0.5rem 1rem;
+          border-radius: 999px;
+          font-size: 0.9rem;
+          display: inline-block;
+        }
+        .emoji { font-size: 4rem; margin-bottom: 1rem; }
+        .note { 
+          margin-top: 2rem; 
+          padding: 1rem; 
+          background: rgba(0,0,0,0.2); 
+          border-radius: 8px;
+          font-size: 0.85rem;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="emoji">🚀</div>
+        <h1>Static Demo Mode</h1>
+        <p>WebContainer requires Cross-Origin Isolation</p>
+        <span class="badge">Deploy to unlock full Node.js support</span>
+        <div class="note">
+          ✅ Vercel/Netlify with COOP/COEP headers<br/>
+          ✅ Local dev: npm run dev
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
   if (!isCrossOriginIsolated) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-card rounded-lg border border-border">
-        <AlertCircle className="w-12 h-12 text-yellow-500 mb-4" />
-        <h3 className="text-lg font-semibold mb-2">WebContainer Not Available</h3>
-        <p className="text-sm text-muted-foreground mb-4 max-w-md">
-          WebContainer requires Cross-Origin Isolation (COOP/COEP headers). 
-          This feature works in deployed environments with proper headers configured.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Alternative: Use the static HTML preview for now.
-        </p>
+      <div className="flex flex-col h-full bg-background">
+        {/* Toolbar for static mode */}
+        <div className="flex items-center gap-2 p-2 border-b border-border bg-card">
+          <Button size="sm" disabled className="gap-2">
+            <AlertCircle className="w-4 h-4" />
+            Demo Mode
+          </Button>
+          <div className="flex-1" />
+          <span className="text-xs text-yellow-500 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Cross-Origin Isolation required
+          </span>
+        </div>
+
+        {/* Split view */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Info panel */}
+          <div className="w-1/2 p-6 flex flex-col items-center justify-center bg-card border-r border-border">
+            <div className="max-w-md text-center">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Rocket className="w-8 h-8 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">WebContainer Ready</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Run full Node.js applications in your browser! Currently showing a static demo because COOP/COEP headers aren't available.
+              </p>
+              
+              <div className="bg-muted/50 rounded-lg p-4 text-left mb-4">
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  To enable WebContainer:
+                </h4>
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  <li>• Deploy to <strong>Vercel</strong> (headers configured)</li>
+                  <li>• Deploy to <strong>Netlify</strong> (headers configured)</li>
+                  <li>• Run locally: <code className="bg-background px-1 rounded">npm run dev</code></li>
+                </ul>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Code className="w-4 h-4" />
+                <span>Powered by StackBlitz WebContainer API</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Static preview */}
+          <div className="flex-1 bg-background">
+            <iframe
+              srcDoc={staticDemoHtml}
+              className="w-full h-full border-0"
+              title="Static Demo Preview"
+            />
+          </div>
+        </div>
       </div>
     );
   }
