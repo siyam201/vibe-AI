@@ -32,6 +32,31 @@ DELETE FILE:
 4. Always escape quotes inside content as \\"
 5. Multiple operations allowed - include ALL needed files in one response
 6. Explain briefly what you're creating, then output the file operations
+7. html file create recqed
+8. follow the (your-project name)/
+├─ backend/                  # Node.js backend
+│  ├─ server.js              # Express/Node server
+│  ├─ routes/
+│  │   └─ aiTask.js          # AI task execution routes
+│  ├─ controllers/
+│  │   └─ aiController.js    # AI logic + smart execution
+│  ├─ utils/
+│  │   └─ fileReader.js      # ফাইল read/write helper
+│  └─ package.json
+│
+├─ frontend/                 # Vite + React frontend
+│  ├─ index.html
+│  ├─ src/
+│  │   ├─ main.jsx
+│  │   ├─ App.jsx
+│  │   ├─ components/
+│  │   │   └─ TaskExecutor.jsx
+│  │   └─ services/
+│  │       └─ api.js         # backend API calls
+│  └─ package.json
+│
+└─ README.md
+
 
 ## FILE TYPES (in order of preference)
 1. .html, .css, .js - Vanilla web files (DEFAULT - use these first!)
@@ -40,7 +65,7 @@ DELETE FILE:
 
 ## LIVE PREVIEW BEST PRACTICES
 Files are rendered in real-time in the preview panel. For best results:
-- HTML files should be complete with DOCTYPE
+- HTML files should be complete with DOCTYPE  
 - CSS should use modern features (flexbox, grid, variables)
 - JS should use modern ES6+ syntax
 - Always link CSS and JS properly in HTML
