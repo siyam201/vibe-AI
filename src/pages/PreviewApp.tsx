@@ -46,26 +46,28 @@ const PreviewApp = () => {
     loadPreview();
   }, [appName]);
 
-  const handleOpenExternal = () => {
-    window.open(window.location.href, '_blank', 'noopener,noreferrer');
-  };
-
-  // ক্লিক ফিক্স করার জন্য নতুন স্ক্রিপ্ট
+  // ৪MD এরর ফিক্স করার জন্য স্পেশাল ইন্টারসেপ্টর স্ক্রিপ্ট
   const processHtmlContent = (html: string) => {
-    const fixClickScript = `
+    const routingFixScript = `
       <script>
-        // অ্যালার্ট সরিয়ে সরাসরি লিঙ্ক কাজ করানোর জন্য
+        // লিঙ্ক ক্লিক করলে যাতে Lovable/Vercel-এর ৪MD পেজে না যায়
         document.addEventListener('click', function(e) {
-          const target = e.target.closest('a');
-          if (target) {
-            const href = target.getAttribute('href');
-            // যদি হ্যাশ (#) বা লোকাল লিঙ্ক হয়, তবে ব্রাউজার রিফ্রেশ আটকানো যাবে না
-            // আমরা চাই ব্রাউজার ওই লিঙ্কে যাক
-            if (href && href.startsWith('#')) {
-               // Internal anchor links are fine
-            } else if (href && !href.startsWith('http')) {
-               // এটি ইন্টারনাল রাউটিং হ্যান্ডেল করবে
-               console.log('Navigating to:', href);
+          const link = e.target.closest('a');
+          if (link) {
+            const href = link.getAttribute('href');
+            
+            // যদি লিঙ্কটি ইন্টারনাল হয় (যেমন: /register বা #)
+            if (href && (href.startsWith('/') || href.startsWith('#'))) {
+              e.preventDefault(); // ব্রাউজারের আসল নেভিগেশন বন্ধ করা হলো
+              
+              // এখানে আমরা শুধু ইউজারকে দেখাচ্ছি যে সে ক্লিক করেছে
+              // সত্যিকারের পেজ চেঞ্জ করতে হলে ডাটাবেসে ওই পেজের কোড থাকতে হবে
+              console.log('Intercepted navigation to:', href);
+              
+              // ডামি হিসেবে বডি কন্টেন্ট চেঞ্জ করে দেওয়া (যাতে ৪MD না আসে)
+              if (href.includes('register')) {
+                document.body.innerHTML = '<div style="padding:20px; text-align:center; font-family:sans-serif;"><h2>Registration Page</h2><p>This is a simulated register view.</p><a href="/">Back to Login</a></div>';
+              }
             }
           }
         }, true);
@@ -73,14 +75,15 @@ const PreviewApp = () => {
     `;
     
     if (html.includes('</body>')) {
-      return html.replace('</body>', fixClickScript + '</body>');
+      return html.replace('</body>', routingFixScript + '</body>');
     }
-    return html + fixClickScript;
+    return html + routingFixScript;
   };
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background overflow-hidden">
-      <header className="h-14 bg-card border-b border-border flex items-center justify-between px-4 shrink-0 z-30">
+    <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
+      {/* Header - ফিক্সড হাইট */}
+      <header className="h-14 bg-card border-b border-border flex items-center justify-between px-4 shrink-0 z-50">
         <div className="flex items-center gap-3">
           <Link to="/">
             <Button variant="ghost" size="sm" className="gap-2">
@@ -88,9 +91,9 @@ const PreviewApp = () => {
               <span className="hidden sm:inline">Back</span>
             </Button>
           </Link>
-          <div className="flex items-center gap-2 bg-muted px-3 py-1 rounded-full border">
+          <div className="flex items-center gap-2 bg-muted/50 px-3 py-1 rounded-full border border-border">
             <Lock className="w-3 h-3 text-green-500" />
-            <span className="text-xs font-mono truncate max-w-[150px]">
+            <span className="text-xs font-mono truncate max-w-[120px] sm:max-w-xs">
               vibe-ai.app/{appName}{currentPath}
             </span>
           </div>
@@ -100,29 +103,27 @@ const PreviewApp = () => {
           <Button variant="ghost" size="icon" onClick={loadPreview} disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button variant="outline" size="sm" onClick={handleOpenExternal} className="hidden sm:flex h-9 border-primary/20">
-            <ExternalLink className="w-4 h-4 mr-2" />
-            Launch
-          </Button>
-          <div className={`w-2.5 h-2.5 rounded-full ${previewCode ? 'bg-green-500' : 'bg-red-500'}`} />
+          <div className={`w-2 h-2 rounded-full ${previewCode ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
         </div>
       </header>
 
-      <main className="flex-1 w-full bg-white relative">
+      {/* Main Preview - কালো অংশ দূর করার জন্য absolute positioning */}
+      <main className="flex-1 w-full bg-white relative overflow-hidden">
         <iframe
           key={iframeKey}
-          srcDoc={loading ? "<html><body style='display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'>Loading...</body></html>" : processHtmlContent(previewCode || "")}
-          className="absolute inset-0 w-full h-full border-0"
-          title="App Preview"
-          /* স্যান্ডবক্সে 'allow-top-navigation' এবং 'allow-popups' অ্যাড করা হয়েছে */
-          sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-top-navigation"
+          srcDoc={loading ? "<html><body style='display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;'>Loading...</body></html>" : processHtmlContent(previewCode || "")}
+          className="absolute inset-0 w-full h-full border-0 m-0 p-0"
+          title="Secure Preview"
+          sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+          style={{ display: 'block', height: '100%', width: '100%' }}
         />
       </main>
 
-      <footer className="h-7 bg-card border-t border-border flex items-center px-4 shrink-0">
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase font-bold">
-          <ShieldCheck className="w-3 h-3 text-primary" />
-          <span>Secure Preview Active</span>
+      {/* Status Bar */}
+      <footer className="h-6 bg-muted border-t border-border flex items-center px-4 shrink-0">
+        <div className="flex items-center gap-2 text-[9px] text-muted-foreground font-bold tracking-tighter">
+          <ShieldCheck className="w-2.5 h-2.5" />
+          <span>SANDBOX ACTIVE • NO EXTERNAL NAV</span>
         </div>
       </footer>
     </div>
