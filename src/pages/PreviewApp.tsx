@@ -50,22 +50,22 @@ const PreviewApp = () => {
     window.open(window.location.href, '_blank', 'noopener,noreferrer');
   };
 
-  // ৪০৪ এরর ফিক্স করার জন্য প্রসেসর
+  // ক্লিক ফিক্স করার জন্য নতুন স্ক্রিপ্ট
   const processHtmlContent = (html: string) => {
     const fixClickScript = `
       <script>
-        // বাটনে ক্লিক করলে পেজ যাতে রিফ্রেশ বা পরিবর্তন না হয়ে যায়
+        // অ্যালার্ট সরিয়ে সরাসরি লিঙ্ক কাজ করানোর জন্য
         document.addEventListener('click', function(e) {
           const target = e.target.closest('a');
           if (target) {
             const href = target.getAttribute('href');
-            // যদি লিঙ্কে # থাকে বা লোকাল রাউট হয়, তবে ব্রাউজার রিফ্রেশ আটকানো
-            if (href && (href.startsWith('/') || href.startsWith('#'))) {
-              e.preventDefault();
-              console.log('Navigating to:', href);
-              // এখানে আপনার অ্যাপের লজিক অনুযায়ী পেজ সুইচ হবে
-              // যেহেতু এটি একটি সিঙ্গেল HTML প্রিভিউ, তাই আমরা শুধু অ্যালার্ট বা কনসোল দিচ্ছি
-              alert('Navigation to ' + href + ' is simulated. In a full app, this would load the ' + href + ' component.');
+            // যদি হ্যাশ (#) বা লোকাল লিঙ্ক হয়, তবে ব্রাউজার রিফ্রেশ আটকানো যাবে না
+            // আমরা চাই ব্রাউজার ওই লিঙ্কে যাক
+            if (href && href.startsWith('#')) {
+               // Internal anchor links are fine
+            } else if (href && !href.startsWith('http')) {
+               // এটি ইন্টারনাল রাউটিং হ্যান্ডেল করবে
+               console.log('Navigating to:', href);
             }
           }
         }, true);
@@ -80,7 +80,6 @@ const PreviewApp = () => {
 
   return (
     <div className="flex flex-col h-screen w-full bg-background overflow-hidden">
-      {/* Header */}
       <header className="h-14 bg-card border-b border-border flex items-center justify-between px-4 shrink-0 z-30">
         <div className="flex items-center gap-3">
           <Link to="/">
@@ -98,34 +97,32 @@ const PreviewApp = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={loadPreview} disabled={loading}>
+          <Button variant="ghost" size="icon" onClick={loadPreview} disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button variant="outline" size="sm" onClick={handleOpenExternal} className="hidden sm:flex">
+          <Button variant="outline" size="sm" onClick={handleOpenExternal} className="hidden sm:flex h-9 border-primary/20">
             <ExternalLink className="w-4 h-4 mr-2" />
             Launch
           </Button>
-          <div className={`w-2.5 h-2.5 rounded-full ${previewCode ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+          <div className={`w-2.5 h-2.5 rounded-full ${previewCode ? 'bg-green-500' : 'bg-red-500'}`} />
         </div>
       </header>
 
-      {/* Preview Area */}
-      <main className="flex-1 w-full bg-[#f8f9fa] relative">
+      <main className="flex-1 w-full bg-white relative">
         <iframe
           key={iframeKey}
           srcDoc={loading ? "<html><body style='display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'>Loading...</body></html>" : processHtmlContent(previewCode || "")}
           className="absolute inset-0 w-full h-full border-0"
-          title="Secure Preview"
-          /* 'allow-top-navigation' সরিয়ে দেওয়া হয়েছে যাতে ৪০৪ এরর না আসে */
-          sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+          title="App Preview"
+          /* স্যান্ডবক্সে 'allow-top-navigation' এবং 'allow-popups' অ্যাড করা হয়েছে */
+          sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-top-navigation"
         />
       </main>
 
-      {/* Footer */}
-      <footer className="h-7 bg-muted border-t border-border flex items-center px-4 shrink-0">
+      <footer className="h-7 bg-card border-t border-border flex items-center px-4 shrink-0">
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase font-bold">
           <ShieldCheck className="w-3 h-3 text-primary" />
-          <span>Secure Environment</span>
+          <span>Secure Preview Active</span>
         </div>
       </footer>
     </div>
