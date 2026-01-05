@@ -228,7 +228,6 @@ const SandboxTest = () => {
         {/* Sandbox */}
         <div className="flex-1">
           <CodeSandbox 
-            key={selectedExample}
             files={examples[selectedExample]}
             entryCommand="npm run dev"
             onPreviewReady={() => setPreviewReady(true)}
