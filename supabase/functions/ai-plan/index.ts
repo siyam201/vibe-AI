@@ -18,10 +18,11 @@ const PLANNER_PROMPT = `তুমি Vibe Code IDE-এর AI Architect। তো
 
 ## তোমার নীতিমালা
 - সব কথায় হ্যাঁ বলবে না
-- যেটা করা উচিত সেটাই বলবে
+- যেটা করা উচিত সেটাই বলবে (বগুড়ার ভাষায় সহজ করে বুঝিয়ে বলবে যদি দরকার হয়)
 - বাস্তবতা মাথায় রাখবে
 - ভবিষ্যতে কী বদলাবে সেটাও ধরাবে
 - ইউজারের জন্য যেটা ভালো, সেটাই priority
+- **CRITICAL: No Node.js. Always use Supabase for any backend/database needs.**
 
 ## RESPONSE FORMAT
 Always respond with a JSON plan in this exact format:
@@ -31,11 +32,11 @@ Always respond with a JSON plan in this exact format:
   "title": "প্রজেক্টের সংক্ষিপ্ত নাম",
   "summary": "এক লাইনে কী বানানো হবে",
   "complexity": "simple|medium|complex",
-  "estimatedTime": "আনুমানিক সময় (যেমন: 30 মিনিট, 2 ঘণ্টা)",
+  "estimatedTime": "আনুমানিক সময়",
   "techStack": {
-    "frontend": ["HTML", "CSS", "JavaScript"],
-    "backend": ["Node.js", "Express"],
-    "database": ["None"],
+    "frontend": ["HTML", "CSS", "JavaScript/Vite"],
+    "backend": ["Supabase Edge Functions"],
+    "database": ["Supabase/PostgreSQL"],
     "apis": ["Gemini API"]
   },
   "features": [
@@ -57,53 +58,29 @@ Always respond with a JSON plan in this exact format:
   ],
   "files": [
     {
-      "path": "src/filename.ext",
+      "path": "filename.ext",
       "action": "create|edit|delete",
       "purpose": "কেন দরকার"
     }
   ],
   "risks": [
     {
-      "type": "security|performance|cost|complexity|future",
+      "type": "security|performance|cost",
       "description": "ঝুঁকি কী",
-      "mitigation": "কীভাবে সমাধান করা যায়",
+      "mitigation": "সমাধান কী",
       "severity": "low|medium|high"
     }
   ],
-  "futureConsiderations": [
-    "ভবিষ্যতে যা যোগ করা যেতে পারে"
-  ],
+  "futureConsiderations": ["ভবিষ্যতে যা যোগ করা যেতে পারে"],
   "dependencies": ["packages needed"],
   "questions": ["স্পষ্ট না হলে প্রশ্ন"],
-  "aiRecommendation": "AI হিসেবে আমার মতামত - কী করা উচিত এবং কেন",
-  "warnings": ["সতর্কতা যদি থাকে"]
+  "aiRecommendation": "AI হিসেবে আমার মতামত",
+  "warnings": ["সতর্কতা"]
 }
-<<<PLAN_END>>>
-
-## PRIORITY LEVELS
-- must: অবশ্যই লাগবে, ছাড়া চলবে না
-- should: থাকলে ভালো হয়
-- could: optional, সময় থাকলে
-- future: পরে যোগ করা যাবে
-
-## EFFORT LEVELS
-- low: সহজ, দ্রুত করা যায়
-- medium: মাঝামাঝি সময় লাগবে
-- high: কঠিন, সময় বেশি লাগবে
-
-## FILE TYPES (in order of preference for web)
-1. .html, .css, .js - Vanilla web files (DEFAULT)
-2. .jsx, .tsx, .ts - React/TypeScript (only when asked)
-
-## RULES
-- Always wrap JSON in <<<PLAN_START>>> and <<<PLAN_END>>>
-- Be honest, not a yes-man
-- Think about security, cost, and future
-- If something is a bad idea, say so politely
-- If unclear, ask questions
-- Give your genuine recommendation`;
+<<<PLAN_END>>>`;
 
 serve(async (req) => {
+  // CORS প্রি-ফ্লাইট রিকোয়েস্ট হ্যান্ডলিং
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -111,70 +88,68 @@ serve(async (req) => {
   try {
     const { message, context, mode } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY not configured");
-      throw new Error("AI service not configured");
+    if (!LOVABLE_API_KEY && !GEMINI_API_KEY) {
+      throw new Error("No AI API key configured");
     }
 
-    console.log("Creating execution plan for:", message.substring(0, 100));
+    console.log("Generating execution plan...");
 
-    // Include file context if provided
+    // আগের ফাইলগুলোর কনটেক্সট যোগ করা
     const contextMessage = context?.files?.length 
       ? `\n\nCurrent project files:\n${context.files.map((f: string) => `- ${f}`).join('\n')}`
       : '';
 
-    // Adjust prompt based on mode
-    let userMessage = message + contextMessage;
+    let userContent = message + contextMessage;
     if (mode === 'revise') {
-      userMessage = `ইউজার এই প্ল্যানে পরিবর্তন চাইছে: ${message}${contextMessage}`;
+      userContent = `ইউজার এই প্ল্যানে পরিবর্তন চাইছে: ${message}${contextMessage}`;
     }
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: PLANNER_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const status = response.status;
-      console.error("AI gateway error:", status);
-      
-      if (status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      
-      if (status === 402) {
-        return new Response(JSON.stringify({ error: "Credits exhausted. Please add funds." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      
-      return new Response(JSON.stringify({ error: "AI service error" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    let response: Response;
+    
+    // Lovable AI ব্যবহার করার চেষ্টা
+    if (LOVABLE_API_KEY) {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.0-flash", // দ্রুত রেসপন্সের জন্য
+          messages: [
+            { role: "system", content: PLANNER_PROMPT },
+            { role: "user", content: userContent },
+          ],
+        }),
+      });
+    } else {
+      // Gemini API সরাসরি ব্যবহার (Fallback)
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: PLANNER_PROMPT + "\n\nUser Request: " + userContent }] }
+          ]
+        }),
       });
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    
-    console.log("Plan generated successfully");
+    if (!response.ok) {
+      throw new Error(`AI Gateway Error: ${response.status}`);
+    }
 
-    // Extract plan from response
+    const result = await response.json();
+    // Lovable বা Gemini এর ফরম্যাট অনুযায়ী কন্টেন্ট বের করা
+    const content = LOVABLE_API_KEY 
+      ? result.choices?.[0]?.message?.content 
+      : result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!content) throw new Error("No content received from AI");
+
+    // JSON প্ল্যানটি এক্সট্রাক্ট করা
     const planMatch = content.match(/<<<PLAN_START>>>([\s\S]*?)<<<PLAN_END>>>/);
     
     if (planMatch) {
@@ -184,8 +159,8 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } catch (parseError) {
-        console.error("Failed to parse plan JSON:", parseError);
-        return new Response(JSON.stringify({ error: "Failed to parse plan", raw: content }), {
+        console.error("JSON Parsing failed:", parseError);
+        return new Response(JSON.stringify({ error: "Invalid JSON format in plan", raw: content }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -198,8 +173,8 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error("AI plan error:", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
+    console.error("Planner Error:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
