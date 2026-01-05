@@ -38,8 +38,11 @@ const CodeSandbox = ({
     mountFiles,
     runCommand,
     writeFile,
-    teardown
+    teardown,
+    reset
   } = useWebContainer();
+
+  const prevFilesRef = useRef<string>('');
 
   const [isRunning, setIsRunning] = useState(false);
   const [showLogs, setShowLogs] = useState(true);
@@ -80,6 +83,17 @@ const CodeSandbox = ({
       onPreviewReady(previewUrl);
     }
   }, [previewUrl, onPreviewReady]);
+
+  // Detect file changes and reset when needed
+  useEffect(() => {
+    const filesKey = JSON.stringify(files);
+    if (prevFilesRef.current && prevFilesRef.current !== filesKey) {
+      // Files changed - reset state for new run
+      reset();
+      setIsRunning(false);
+    }
+    prevFilesRef.current = filesKey;
+  }, [files, reset]);
 
   const handleStart = async () => {
     setIsRunning(true);
