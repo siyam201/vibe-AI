@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -11,7 +11,8 @@ import {
   Loader2,
   Check,
   CloudOff,
-  Code2
+  Code2,
+  Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -34,17 +35,12 @@ interface IDEWorkspaceProps {
 }
 
 const getLanguage = (extension?: string) => {
-  switch (extension) {
-    case 'js': return 'javascript';
-    case 'ts': return 'typescript';
-    case 'jsx': return 'javascript';
-    case 'tsx': return 'typescript';
-    case 'html': return 'html';
-    case 'css': return 'css';
-    case 'json': return 'json';
-    case 'md': return 'markdown';
-    default: return 'plaintext';
-  }
+  const map: Record<string, string> = {
+    'js': 'javascript', 'ts': 'typescript', 'jsx': 'javascript', 
+    'tsx': 'typescript', 'html': 'html', 'css': 'css', 
+    'json': 'json', 'md': 'markdown'
+  };
+  return map[extension || ''] || 'plaintext';
 };
 
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
@@ -58,6 +54,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     duplicateProject
   } = useProjectHistory();
 
+  // --- States ---
   const [files, setFiles] = useState<FileItem[]>([]);
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
@@ -69,132 +66,148 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
-  // ১. ডাটাবেজ থেকে প্রজেক্ট সিঙ্ক করা (Sync Logic)
+  // ১. ইউআরএল থেকে প্রোজেক্ট চিনে ডাটাবেজ থেকে ডাটা আনা
   useEffect(() => {
-    const sync = async () => {
-      if (projectName && projects.length > 0) {
+    const syncProject = async () => {
+      if (projects.length > 0) {
         const decodedName = decodeURIComponent(projectName);
         const target = projects.find(p => p.name === decodedName);
         
-        if (target && currentProject?.id !== target.id) {
-          setIsSyncing(true);
-          await loadProject(target.id);
+        if (target) {
+          if (currentProject?.id !== target.id) {
+            console.log("Database-থেকে ফাইল লোড হচ্ছে...");
+            await loadProject(target.id);
+          }
           setIsSyncing(false);
-        } else if (target) {
-          setIsSyncing(false);
+        } else {
+          // যদি প্রোজেক্ট খুঁজে না পায় তবে ৩ সেকেন্ড পর লোডিং বন্ধ হবে
+          setTimeout(() => setIsSyncing(false), 3000);
         }
       }
     };
-    sync();
+    syncProject();
   }, [projectName, projects, loadProject, currentProject?.id]);
 
-  // ২. প্রজেক্টের ফাইলগুলো স্টেটে সেট করা
+  // ২. কারেন্ট প্রোজেক্টের ফাইলগুলো এডিটর স্টেটে বসানো
   useEffect(() => {
     if (currentProject?.files && currentProject.files.length > 0) {
       setFiles(currentProject.files);
-      // শুরুতে README বা প্রথম ফাইলটি ট্যাবে ওপেন করা
+      
+      // প্রথমবার ফাইল লোড হলে README অটো ওপেন করা
       if (openTabs.length === 0) {
-        const firstFile = currentProject.files[0];
-        if (firstFile.type === 'file') {
-          setOpenTabs([{ id: firstFile.id, name: firstFile.name, language: getLanguage(firstFile.extension) }]);
-          setActiveTabId(firstFile.id);
+        const readme = currentProject.files.find(f => f.name.toLowerCase().includes('readme')) || currentProject.files[0];
+        if (readme && readme.type === 'file') {
+          setOpenTabs([{ id: readme.id, name: readme.name, language: getLanguage(readme.extension) }]);
+          setActiveTabId(readme.id);
         }
       }
     }
   }, [currentProject]);
 
-  // ৩. অটো-সেভ ফিক্স (Auto-save Logic)
+  // ৩. ফিক্সড অটো-সেভ লজিক (৩ সেকেন্ড ডিবউন্স)
   useEffect(() => {
     if (isSyncing || !currentProject?.id || files.length === 0) return;
 
-    const performSave = async () => {
+    const saveToDB = async () => {
       setSaveStatus('saving');
       const { error } = await supabase
         .from('projects')
-        .update({ files: files as any, updated_at: new Date().toISOString() })
+        .update({ 
+          files: files as any, 
+          updated_at: new Date().toISOString() 
+        })
         .eq('id', currentProject.id);
 
       if (error) {
+        console.error("Auto-save error:", error);
         setSaveStatus('error');
-        console.error("Auto-save failed:", error);
       } else {
         updateProjectFiles(currentProject.id, files);
         setSaveStatus('saved');
       }
     };
 
-    const timeout = setTimeout(performSave, 3000); // র‍্যাম বাঁচাতে ৩ সেকেন্ড গ্যাপ
-    return () => clearTimeout(timeout);
+    const timer = setTimeout(saveToDB, 3000); // র‍্যামের ওপর প্রেশার কমাতে ৩ সেকেন্ড দেওয়া
+    return () => clearTimeout(timer);
   }, [files, currentProject?.id, isSyncing]);
 
+  // ৪. ফাইল কন্টেন্ট আপডেট (Optimize for 4GB RAM)
   const updateFileContent = useCallback((fileId: string, content: string) => {
-    setFiles(prevFiles => {
-      const updateRecursive = (items: FileItem[]): FileItem[] => {
-        return items.map(item => {
-          if (item.id === fileId) return { ...item, content };
-          if (item.children) return { ...item, children: updateRecursive(item.children) };
-          return item;
+    setFiles(prev => {
+      const updateNode = (nodes: FileItem[]): FileItem[] => {
+        return nodes.map(node => {
+          if (node.id === fileId) return { ...node, content };
+          if (node.children) return { ...node, children: updateNode(node.children) };
+          return node;
         });
       };
-      return updateRecursive(prevFiles);
+      return updateNode(prev);
     });
   }, []);
 
-  const handleTabClose = (id: string) => {
-    const filtered = openTabs.filter(t => t.id !== id);
-    setOpenTabs(filtered);
-    if (activeTabId === id && filtered.length > 0) {
-      setActiveTabId(filtered[filtered.length - 1].id);
-    }
-  };
-
-  const activeFile = (() => {
-    const find = (items: FileItem[]): FileItem | null => {
+  // ৫. একটিভ ফাইল খোঁজা (Recursive)
+  const activeFile = useMemo(() => {
+    const findFile = (items: FileItem[]): FileItem | null => {
       for (const item of items) {
         if (item.id === activeTabId) return item;
         if (item.children) {
-          const res = find(item.children);
+          const res = findFile(item.children);
           if (res) return res;
         }
       }
       return null;
     };
-    return find(files);
-  })();
+    return findFile(files);
+  }, [files, activeTabId]);
 
+  // লোডিং স্ক্রিন
   if (isSyncing && !currentProject) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
-        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-        <p className="text-white/60">Vibe-AI প্রজেক্ট সিঙ্ক করছে...</p>
+      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a] text-white">
+        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+        <p className="text-lg font-medium animate-pulse">আপনার প্রোজেক্ট ফাইলগুলো সাজানো হচ্ছে...</p>
+        <p className="text-xs text-white/40 mt-2">বগুড়া থেকে ডাটা লোড হতে একটু সময় লাগতিছে</p>
       </div>
     );
   }
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0f0f1a] text-white">
-      {/* Header */}
+      {/* Header Bar */}
       <div className="h-12 flex items-center justify-between px-4 bg-[#16162a] border-b border-white/10">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setShowSidebar(!showSidebar)}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowSidebar(!showSidebar)}>
             {showSidebar ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </Button>
-          <span className="font-medium text-sm truncate">{currentProject?.name || projectName}</span>
-          <div className="ml-2 px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[10px]">
-             {saveStatus === 'saving' ? <span className="text-amber-500 animate-pulse">SAVING...</span> : 
-              saveStatus === 'saved' ? <span className="text-emerald-500">SAVED</span> : <span className="text-red-500">ERROR</span>}
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-primary" />
+            <span className="font-medium text-sm truncate max-w-[120px]">{currentProject?.name || projectName}</span>
+          </div>
+          {/* সেভ ইন্ডিকেটর */}
+          <div className="ml-4 flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/10">
+             {saveStatus === 'saving' ? (
+               <><Loader2 className="w-3 h-3 animate-spin text-amber-500" /><span className="text-[9px] text-amber-500 uppercase font-bold">Saving</span></>
+             ) : (
+               <><Check className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-500 uppercase font-bold">Saved</span></>
+             )}
           </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setShowProjectHistory(true)}><FolderOpen className="w-4 h-4 mr-2" />Projects</Button>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={onPublish}><Play className="w-4 h-4 mr-2" />Run</Button>
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowProjectHistory(true)}>
+            <FolderOpen className="w-4 h-4 mr-2" /> Projects
+          </Button>
+          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 text-xs" onClick={onPublish}>
+            <Play className="w-3.5 h-3.5 mr-2" /> Run
+          </Button>
         </div>
       </div>
 
-      {/* Body */}
+      {/* Main Container */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar: File Explorer */}
         {showSidebar && (
-          <div className="w-60 border-r border-white/10 bg-[#121225]">
+          <div className="w-64 border-r border-white/10 bg-[#121225] flex flex-col">
             <FileExplorer 
               files={files} 
               activeFileId={activeTabId} 
@@ -210,30 +223,56 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           </div>
         )}
 
+        {/* Editor Area */}
         <div className="flex-1 flex flex-col min-w-0">
-          <EditorTabs tabs={openTabs} activeTabId={activeTabId} onTabSelect={setActiveTabId} onTabClose={handleTabClose} />
-          <div className="flex-1">
+          <EditorTabs 
+            tabs={openTabs} 
+            activeTabId={activeTabId} 
+            onTabSelect={setActiveTabId} 
+            onTabClose={(id) => {
+              const filtered = openTabs.filter(t => t.id !== id);
+              setOpenTabs(filtered);
+              if (activeTabId === id && filtered.length > 0) setActiveTabId(filtered[filtered.length - 1].id);
+            }} 
+          />
+          <div className="flex-1 relative">
             {activeFile ? (
-              <CodeEditor code={activeFile.content || ''} language={getLanguage(activeFile.extension)} onChange={(v) => updateFileContent(activeTabId, v || '')} />
+              <CodeEditor 
+                code={activeFile.content || ''} 
+                language={getLanguage(activeFile.extension)} 
+                onChange={(v) => updateFileContent(activeTabId, v || '')} 
+              />
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-white/20 gap-4 font-bogura">
-                <Code2 size={48} />
-                <p>হামাগো বগুড়ার এডিটরে স্বাগতম! একটা ফাইল বাছেন।</p>
+              <div className="h-full flex flex-col items-center justify-center text-white/20 gap-4">
+                <Code2 size={64} strokeWidth={1} />
+                <p className="text-sm">হামাগো বগুড়ার এডিটরে ফাইল একটা বাছেন শুরু করবার জন্য!</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="w-[400px] border-l border-white/10 bg-[#121225]">
+        {/* Right Panel: AI Chat */}
+        <div className="w-[400px] border-l border-white/10 bg-[#121225] hidden lg:flex flex-col">
            <UnifiedAIChatPanel 
-             onInsertCode={(c) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + c)} 
+             onInsertCode={(code) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + code)} 
              onFileOperations={executeOperations} 
              currentFiles={files.map(f => ({ path: f.name, content: f.content || '' }))}
            />
         </div>
       </div>
 
-      {showProjectHistory && <ProjectHistoryPanel projects={projects} currentProjectId={currentProject?.id} onCreateProject={createProject} onLoadProject={loadProject} onDeleteProject={deleteProject} onDuplicateProject={duplicateProject} onClose={() => setShowProjectHistory(false)} />}
+      {/* Project History Modal */}
+      {showProjectHistory && (
+        <ProjectHistoryPanel 
+          projects={projects} 
+          currentProjectId={currentProject?.id} 
+          onCreateProject={createProject} 
+          onLoadProject={loadProject} 
+          onDeleteProject={deleteProject} 
+          onDuplicateProject={duplicateProject} 
+          onClose={() => setShowProjectHistory(false)} 
+        />
+      )}
     </div>
   );
 };
