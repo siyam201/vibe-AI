@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom'; // useParams এখানে ইমপোর্ট হবে
+import { useNavigate, useParams } from 'react-router-dom';
 import { ReplitSidebar } from '@/components/layout/ReplitSidebar';
 import { CreateAppPrompt } from '@/components/home/CreateAppPrompt';
 import { CommandPalette } from '@/components/command/CommandPalette';
@@ -17,7 +17,7 @@ import { useProjectHistory } from '@/hooks/useProjectHistory';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { projectId } = useParams(); // হুকটি এখন ফাংশনের ভেতরে
+  const { projectId } = useParams(); 
   const { user, loading, signOut } = useAuth();
 
   // Navigation state
@@ -32,20 +32,24 @@ const Index = () => {
   const [projectName, setProjectName] = useState('My-App');
   const [initialPrompt, setInitialPrompt] = useState<string | undefined>();
   
-  // ১. প্রজেক্ট হিস্ট্রি হুক
+  // প্রজেক্ট হিস্ট্রি হুক
   const { createProject, currentProject } = useProjectHistory();
 
-  // ইউআরএল থেকে সরাসরি প্রজেক্ট লোড করার লজিক
+  // ১. ফিক্সড ফরওয়ার্ডিং লজিক: ইউআরএল থেকে সরাসরি এডিটরে নিয়ে যাওয়া
   useEffect(() => {
-    if (projectId) {
-      setView('editor');
-      setActiveNav('apps');
-      // হাইফেন আলাদা করে শুধু নামটা নেয়া
+    if (projectId && !loading) {
+      // ইউআরএল থেকে নাম বের করা (যেমন: test-app-1234 -> test-app)
       const nameParts = projectId.split('-');
       const nameOnly = nameParts.length > 1 ? nameParts.slice(0, -1).join('-') : projectId;
+      
       setProjectName(nameOnly);
+      setView('editor');
+      setActiveNav('apps');
+      
+      // ছোট একটা মেসেজ দেওয়া যাতে ইউজার বুঝতে পারে কাজ হচ্ছে
+      toast.success(`Opening project: ${nameOnly}`);
     }
-  }, [projectId]);
+  }, [projectId, loading]);
 
   // Persist sidebar state
   const handleToggleSidebar = () => {
@@ -83,21 +87,18 @@ const Index = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // নতুন প্রজেক্ট তৈরি এবং ইউআরএল আপডেট
+  // ২. নতুন প্রজেক্ট তৈরি করে সরাসরি ডায়নামিক লিঙ্কে ফরওয়ার্ড করা
   const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
     const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
-    const project = await createProject(name);
+    const project = await createProject(name); //
     
     if (project) {
-      setProjectName(project.name);
       setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
-      setActiveNav('apps');
-      setView('editor');
-      
       const randomId = Math.floor(1000 + Math.random() * 9000);
-      navigate(`/pro/${project.name}-${randomId}`); // ইউআরএল পরিবর্তন
       
-      toast.success(`Starting "${project.name}" - sending to AI Planner...`);
+      // এখানে সরাসরি নেভিগেট করা হচ্ছে যাতে useEffect ট্রিগার হয়
+      navigate(`/pro/${project.name}-${randomId}`);
+      toast.success(`Creating "${project.name}"...`);
     }
   };
 
@@ -126,16 +127,17 @@ const Index = () => {
     if (nav === 'learn') setView('learn');
     if (nav === 'docs') setView('docs');
     if (nav === 'account') setView('account');
+    
+    // হোম বা অন্য কোথাও গেলে ইউআরএল থেকে /pro/ আইডি সরিয়ে ফেলা
+    if (nav !== 'apps' && projectId) {
+        navigate('/');
+    }
   };
 
-  // প্রজেক্ট ওপেন করার সময় ইউআরএল আপডেট
+  // প্রজেক্ট লিস্ট থেকে ওপেন করার সময় ইউআরএল আপডেট করা
   const handleOpenApp = (appId: string, appName: string) => {
-    setProjectName(appName);
-    setView('editor');
-    setActiveNav('apps');
-    
     const randomId = Math.floor(1000 + Math.random() * 9000);
-    navigate(`/pro/${appName}-${randomId}`); // ইউআরএল পরিবর্তন
+    navigate(`/pro/${appName}-${randomId}`);
   };
 
   if (loading) {
@@ -153,7 +155,10 @@ const Index = () => {
       <ReplitSidebar 
         activeNav={activeNav}
         onNavChange={handleNavChange}
-        onCreateApp={() => setView('home')}
+        onCreateApp={() => {
+            setView('home');
+            navigate('/'); // হোম বাটনে ক্লিক করলে ইউআরএল রিসেট হবে
+        }}
         user={user}
         onLogout={async () => {
           await signOut();
