@@ -3,17 +3,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Play,
-  Share2,
   Settings,
   History,
   Terminal,
-  Eye,
-  Code2,
   Package,
-  Save,
-  Download,
   FolderOpen,
-  GitBranch,
   Loader2,
   Check,
   CloudOff
@@ -29,10 +23,9 @@ import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { VersionHistory } from '@/components/history/VersionHistory';
 import { ShareDialog } from '@/components/share/ShareDialog';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
-import { PackageManager } from '@/components/packages/PackageManager';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { GitPanel } from '@/components/git/GitPanel';
-import { useFileOperations, FileOperation } from '@/hooks/useFileOperations';
+import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -62,18 +55,19 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
   const {
     projects,
     currentProject,
-    createProject,
     updateProjectFiles,
     deleteProject,
     loadProject,
     duplicateProject,
+    createProject
   } = useProjectHistory();
 
   // States
-  const [files, setFiles] = useState<FileItem[]>(currentProject?.files || getDefaultFiles());
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([{ id: 'readme', name: 'README.md', language: 'markdown' }]);
   const [activeTabId, setActiveTabId] = useState('readme');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // UI Panels
   const [showSidebar, setShowSidebar] = useState(true);
@@ -90,12 +84,38 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
   const [showHistory, setShowHistory] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showPackages, setShowPackages] = useState(false);
   const [showProjectHistory, setShowProjectHistory] = useState(false);
 
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
-  // Cloud Sync (Auto-save) logic
+  // ১. প্রধান ফিক্স: ইউআরএল আইডি বা নাম থেকে ডাটা লোড করা
+  useEffect(() => {
+    const syncProject = async () => {
+      if (projectName && projects.length > 0) {
+        const decodedName = decodeURIComponent(projectName);
+        if (currentProject?.name !== decodedName) {
+          const target = projects.find(p => p.name === decodedName);
+          if (target) {
+            setIsSyncing(true);
+            await loadProject(target.id);
+            setIsSyncing(false);
+          }
+        }
+      }
+    };
+    syncProject();
+  }, [projectName, projects, loadProject, currentProject?.name]);
+
+  // ২. কারেন্ট প্রজেক্টের ফাইলগুলো স্টেটে সেট করা
+  useEffect(() => {
+    if (currentProject?.files) {
+      setFiles(currentProject.files);
+    } else if (!isSyncing && files.length === 0) {
+      setFiles(getDefaultFiles());
+    }
+  }, [currentProject, isSyncing]);
+
+  // Cloud Sync (Auto-save)
   useEffect(() => {
     if (!currentProject?.id || files.length === 0) return;
 
@@ -117,11 +137,6 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
     const debounce = setTimeout(performSave, 2000);
     return () => clearTimeout(debounce);
   }, [files, currentProject?.id]);
-
-  // Sync state with current project change
-  useEffect(() => {
-    if (currentProject) setFiles(currentProject.files);
-  }, [currentProject]);
 
   const findFile = useCallback((items: FileItem[], id: string): FileItem | null => {
     for (const item of items) {
@@ -157,12 +172,6 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
       }
       setActiveTabId(file.id);
     }
-  };
-
-  const handleTabClose = (tabId: string) => {
-    const newTabs = openTabs.filter(t => t.id !== tabId);
-    setOpenTabs(newTabs);
-    if (activeTabId === tabId && newTabs.length > 0) setActiveTabId(newTabs[newTabs.length - 1].id);
   };
 
   const handleFileCreate = useCallback((parentId: string | null, name: string, type: 'file' | 'folder') => {
@@ -241,11 +250,10 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
           <Package className="w-4 h-4 text-primary" />
           <span className="font-medium">{currentProject?.name || projectName}</span>
           
-          {/* Save Status Indicator */}
           <div className="flex items-center gap-2 ml-4 px-2 py-0.5 bg-white/5 rounded border border-white/5 text-[10px] font-bold uppercase tracking-widest">
-            {saveStatus === 'saving' ? <Loader2 className="w-3 h-3 animate-spin text-amber-500" /> : 
+            {saveStatus === 'saving' || isSyncing ? <Loader2 className="w-3 h-3 animate-spin text-amber-500" /> : 
              saveStatus === 'saved' ? <Check className="w-3 h-3 text-emerald-500" /> : <CloudOff className="w-3 h-3 text-red-500" />}
-            {saveStatus}
+            {isSyncing ? "Syncing" : saveStatus}
           </div>
         </div>
 
@@ -254,11 +262,9 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
           <Button variant="ghost" size="sm" onClick={() => setShowTerminal(!showTerminal)}><Terminal className="w-4 h-4 mr-2" />Shell</Button>
           <Button variant="ghost" size="sm" onClick={() => setShowHistory(true)}><History className="w-4 h-4 mr-2" />History</Button>
           <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={onPublish}><Play className="w-4 h-4 mr-2" />Run</Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)}><Settings className="w-4 h-4" /></Button>
         </div>
       </div>
 
-      {/* Workspace Area */}
       <div className="flex-1 flex overflow-hidden">
         {showSidebar && (
           <div className="w-64 border-r border-white/10 bg-[#121225]">
@@ -275,7 +281,13 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
 
         <div className="flex-1 flex flex-col min-w-0">
           <EditorTabs tabs={openTabs} activeTabId={activeTabId} onTabSelect={setActiveTabId} onTabClose={handleTabClose} />
-          <div className="flex-1">
+          <div className="flex-1 relative">
+            {isSyncing ? (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#0f0f1a]/80">
+                <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+                <p className="text-sm text-white/60">প্রজেক্ট ফাইলগুলো লোড হচ্ছে...</p>
+              </div>
+            ) : null}
             {activeFile ? (
               <CodeEditor code={currentContent} language={currentLanguage} onChange={(v) => updateFileContent(activeTabId, v || '')} />
             ) : (
@@ -285,7 +297,6 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
           {showTerminal && <TerminalPanel isExpanded={terminalExpanded} onToggleExpand={() => setTerminalExpanded(!terminalExpanded)} onClose={() => setShowTerminal(false)} />}
         </div>
 
-        {/* Right Panel */}
         <div className="w-[400px] border-l border-white/10 bg-[#121225]">
           <div className="flex border-b border-white/10">
             <button onClick={() => setRightPanel('chat')} className={cn("flex-1 p-2 text-xs font-bold uppercase tracking-wider", rightPanel === 'chat' && "bg-primary/20 text-primary border-b-2 border-primary")}>AI Chat</button>
@@ -300,7 +311,6 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
         </div>
       </div>
 
-      {/* Modals */}
       <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
       <VersionHistory isOpen={showHistory} onClose={() => setShowHistory(false)} onRollback={() => {}} />
       <ShareDialog isOpen={showShare} onClose={() => setShowShare(false)} projectName={projectName} projectUrl="" />
