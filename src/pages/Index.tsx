@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom'; // useParams এখানে ইমপোর্ট হবে
 import { ReplitSidebar } from '@/components/layout/ReplitSidebar';
 import { CreateAppPrompt } from '@/components/home/CreateAppPrompt';
 import { CommandPalette } from '@/components/command/CommandPalette';
@@ -17,6 +17,7 @@ import { useProjectHistory } from '@/hooks/useProjectHistory';
 
 const Index = () => {
   const navigate = useNavigate();
+  const { projectId } = useParams(); // হুকটি এখন ফাংশনের ভেতরে
   const { user, loading, signOut } = useAuth();
 
   // Navigation state
@@ -27,8 +28,24 @@ const Index = () => {
     return saved === 'true';
   });
 
-  // ১. প্রজেক্ট হিস্ট্রি থেকে ডাটা নেয়া (একবারই ডিক্লেয়ার করা হয়েছে)
+  // Project state
+  const [projectName, setProjectName] = useState('My-App');
+  const [initialPrompt, setInitialPrompt] = useState<string | undefined>();
+  
+  // ১. প্রজেক্ট হিস্ট্রি হুক
   const { createProject, currentProject } = useProjectHistory();
+
+  // ইউআরএল থেকে সরাসরি প্রজেক্ট লোড করার লজিক
+  useEffect(() => {
+    if (projectId) {
+      setView('editor');
+      setActiveNav('apps');
+      // হাইফেন আলাদা করে শুধু নামটা নেয়া
+      const nameParts = projectId.split('-');
+      const nameOnly = nameParts.length > 1 ? nameParts.slice(0, -1).join('-') : projectId;
+      setProjectName(nameOnly);
+    }
+  }, [projectId]);
 
   // Persist sidebar state
   const handleToggleSidebar = () => {
@@ -43,10 +60,6 @@ const Index = () => {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
   const [showDeploy, setShowDeploy] = useState(false);
-  
-  // Project state
-  const [projectName, setProjectName] = useState('My-App');
-  const [initialPrompt, setInitialPrompt] = useState<string | undefined>();
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -70,25 +83,23 @@ const Index = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Create app from prompt
- const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
-  const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
-  const project = await createProject(name);
-  
-  if (project) {
-    setProjectName(project.name);
-    setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
-    setActiveNav('apps');
-    setView('editor');
+  // নতুন প্রজেক্ট তৈরি এবং ইউআরএল আপডেট
+  const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
+    const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
+    const project = await createProject(name);
     
-    // র্যান্ডম আইডি জেনারেট করে ইউআরএল আপডেট করা
-    const randomId = Math.floor(1000 + Math.random() * 9000);
-    const dynamicUrl = `/pro/${project.name}-${randomId}`;
-    navigate(dynamicUrl); // এই লাইনটি ইউআরএল পরিবর্তন করবে
-    
-    toast.success(`Starting "${project.name}" - sending to AI Planner...`);
-  }
-};
+    if (project) {
+      setProjectName(project.name);
+      setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
+      setActiveNav('apps');
+      setView('editor');
+      
+      const randomId = Math.floor(1000 + Math.random() * 9000);
+      navigate(`/pro/${project.name}-${randomId}`); // ইউআরএল পরিবর্তন
+      
+      toast.success(`Starting "${project.name}" - sending to AI Planner...`);
+    }
+  };
 
   const handleCommandSelect = (id: string) => {
     switch (id) {
@@ -117,15 +128,23 @@ const Index = () => {
     if (nav === 'account') setView('account');
   };
 
- const handleOpenApp = (appId: string, appName: string) => {
-  setProjectName(appName);
-  setView('editor');
-  setActiveNav('apps');
-  
-  // প্রজেক্ট ওপেন করার সময়ও ইউআরএল পরিবর্তন
-  const randomId = Math.floor(1000 + Math.random() * 9000);
-  navigate(`/pro/${appName}-${randomId}`);
-};
+  // প্রজেক্ট ওপেন করার সময় ইউআরএল আপডেট
+  const handleOpenApp = (appId: string, appName: string) => {
+    setProjectName(appName);
+    setView('editor');
+    setActiveNav('apps');
+    
+    const randomId = Math.floor(1000 + Math.random() * 9000);
+    navigate(`/pro/${appName}-${randomId}`); // ইউআরএল পরিবর্তন
+  };
+
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-background">
+        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   const userName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
 
@@ -193,7 +212,6 @@ const Index = () => {
         onClose={() => setShowPricing(false)}
       />
       
-      {/* ২. ডিপ্লয় প্যানেলে ডাটা পাঠানো হচ্ছে */}
       <DeployPanel
         isOpen={showDeploy}
         onClose={() => setShowDeploy(false)}
