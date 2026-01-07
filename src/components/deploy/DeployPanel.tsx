@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   Globe, Rocket, Link2, Copy, Check, ExternalLink,
-  Loader2, CheckCircle2, AlertCircle, X
+  Loader2, CheckCircle2, AlertCircle, X, RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,21 +24,19 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
 
   if (!isOpen) return null;
 
-  // ফাইলগুলোকে ফ্ল্যাট অবজেক্টে রূপান্তর করার ফাংশন (Recursive)
+  // ফাইলগুলোকে ফ্ল্যাট অবজেক্টে রূপান্তর (Recursive)
   const flattenFiles = (items: any[], path = ''): Record<string, string> => {
     let flatFiles: Record<string, string> = {};
+    if (!Array.isArray(items)) return flatFiles;
 
     items.forEach(item => {
       const currentPath = path ? `${path}/${item.name}` : item.name;
-      
       if (item.type === 'file' && item.content !== undefined) {
         flatFiles[currentPath] = item.content;
       } else if (item.type === 'folder' && item.children) {
-        // ফোল্ডারের ভেতর আবার চেক করবে
         Object.assign(flatFiles, flattenFiles(item.children, currentPath));
       }
     });
-
     return flatFiles;
   };
 
@@ -51,7 +49,6 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
     try {
       let filesToDeploy: Record<string, string> = {};
 
-      // ডাটা টাইপ চেক করে প্রসেসিং
       if (Array.isArray(projectFiles)) {
         filesToDeploy = flattenFiles(projectFiles);
       } else if (projectFiles && typeof projectFiles === 'object') {
@@ -59,18 +56,12 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
       }
 
       const fileCount = Object.keys(filesToDeploy).length;
-      console.log("Files being deployed:", filesToDeploy);
-
       if (fileCount === 0) {
-        throw new Error("আপনার প্রজেক্টে কোনো ফাইল পাওয়া যায়নি। দয়া করে কোড লিখে সেভ করুন।");
+        throw new Error("আপনার প্রজেক্টে কোনো ফাইল পাওয়া যায়নি।");
       }
 
-      // সুপাবেজ এজ ফাংশন ইনভোক
       const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-        body: { 
-          appName: projectName, 
-          files: filesToDeploy 
-        }
+        body: { appName: projectName, files: filesToDeploy }
       });
 
       if (error) throw error;
@@ -83,11 +74,18 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
         throw new Error(data?.error || 'Deployment failed');
       }
     } catch (err: any) {
-      console.error('Deployment error:', err);
       setErrorMessage(err.message || 'Unknown error occurred');
       setStatus('error');
       toast.error("Deployment Failed");
     }
+  };
+
+  // Redeploy ফাংশন: এটি স্টেট রিসেট করে আবার ডিপ্লয় শুরু করবে
+  const handleRedeploy = () => {
+    setStatus('idle');
+    setDeployUrl('');
+    // আপনি চাইলে সরাসরি handleDeploy() কল করতে পারেন অথবা ইউজারকে আবার "Confirm" করার সুযোগ দিতে পারেন।
+    // এখানে আমি ইউজারকে আবার চেক করার সুযোগ দিচ্ছি।
   };
 
   const handleCopy = () => {
@@ -97,7 +95,6 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // UI-তে দেখানোর জন্য ফাইল সংখ্যা বের করা
   const displayFileCount = Array.isArray(projectFiles) 
     ? Object.keys(flattenFiles(projectFiles)).length 
     : Object.keys(projectFiles ?? {}).length;
@@ -105,15 +102,16 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+        
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
               <Rocket className="w-4 h-4 text-white" />
             </div>
-            <span className="font-semibold text-white">Deploy to Vercel</span>
+            <span className="font-semibold text-white">Vercel Deployment</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} disabled={status === 'deploying'} className="text-slate-400 hover:text-white">
+          <Button variant="ghost" size="icon" onClick={onClose} disabled={status === 'deploying'} className="text-slate-400">
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -122,13 +120,11 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
         <div className="p-6">
           {status === 'idle' && (
             <div className="text-center space-y-4">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-orange-500/10 flex items-center justify-center">
-                <Globe className="w-8 h-8 text-orange-500" />
-              </div>
+              <Globe className="w-16 h-16 mx-auto text-orange-500/20" />
               <div>
-                <h3 className="text-lg font-semibold text-white">Ready to Go Live?</h3>
+                <h3 className="text-lg font-semibold text-white">Ready to Deploy?</h3>
                 <p className="text-sm text-slate-400">
-                  Your project "{projectName}" with <span className="text-orange-400 font-bold">{displayFileCount}</span> files is ready.
+                  প্রজেক্ট: <span className="text-orange-400">{projectName}</span> ({displayFileCount} ফাইল)
                 </p>
               </div>
             </div>
@@ -137,20 +133,18 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'deploying' && (
             <div className="text-center space-y-4 py-4">
               <Loader2 className="w-12 h-12 mx-auto text-orange-500 animate-spin" />
-              <h3 className="text-lg font-semibold text-white">Deploying to Cloud...</h3>
-              <p className="text-xs text-slate-400 px-4">
-                বগুড়া সার্ভার ভিউ ২.১ প্রসেসিং হচ্ছে। দয়া করে কিছুক্ষণ অপেক্ষা করুন।
-              </p>
+              <h3 className="text-lg font-semibold text-white">Redeploying...</h3>
+              <p className="text-xs text-slate-400">বগুড়া সার্ভার ভিউ আপডেট হচ্ছে...</p>
             </div>
           )}
 
           {status === 'success' && (
             <div className="text-center space-y-4">
               <CheckCircle2 className="w-16 h-16 mx-auto text-green-500" />
-              <h3 className="text-lg font-semibold text-white">Deployment Live!</h3>
+              <h3 className="text-lg font-semibold text-white">Update Live!</h3>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 flex items-center gap-2">
                 <code className="flex-1 text-xs truncate text-orange-400 font-bold">{deployUrl}</code>
-                <Button variant="ghost" size="sm" onClick={handleCopy} className="hover:bg-slate-800">
+                <Button variant="ghost" size="sm" onClick={handleCopy}>
                   {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-slate-400" />}
                 </Button>
               </div>
@@ -160,31 +154,29 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'error' && (
             <div className="text-center space-y-4">
               <AlertCircle className="w-16 h-16 mx-auto text-red-500" />
-              <h3 className="text-lg font-semibold text-red-500">Deployment Error</h3>
-              <p className="text-sm text-slate-400 bg-red-500/10 p-3 rounded border border-red-500/20">
-                {errorMessage}
-              </p>
+              <p className="text-xs text-red-400 bg-red-500/10 p-2 rounded">{errorMessage}</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-end gap-2">
-          {status !== 'deploying' && (
-            <Button variant="outline" onClick={onClose} className="border-slate-700 text-slate-300 hover:bg-slate-800">Close</Button>
-          )}
-          {status === 'idle' && (
-            <Button onClick={handleDeploy} className="bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-900/20">
-              Confirm & Deploy
-            </Button>
-          )}
-          {status === 'success' && (
-            <Button onClick={() => window.open(deployUrl, '_blank')} className="bg-orange-600 hover:bg-orange-700 text-white gap-2">
-              <ExternalLink className="w-4 h-4" /> Open Live App
-            </Button>
-          )}
-          {status === 'error' && (
-            <Button onClick={handleDeploy} className="bg-slate-700 hover:bg-slate-600">Try Again</Button>
+          {status === 'success' ? (
+            <>
+              <Button variant="outline" onClick={handleRedeploy} className="gap-2 border-slate-600 text-slate-300">
+                <RefreshCw className="w-4 h-4" /> Redeploy
+              </Button>
+              <Button onClick={() => window.open(deployUrl, '_blank')} className="bg-orange-600">
+                Open App
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose} disabled={status === 'deploying'}>Cancel</Button>
+              <Button onClick={handleDeploy} disabled={status === 'deploying'} className="bg-orange-600 min-w-[120px]">
+                {status === 'deploying' ? 'Deploying...' : 'Confirm & Deploy'}
+              </Button>
+            </>
           )}
         </div>
       </div>
