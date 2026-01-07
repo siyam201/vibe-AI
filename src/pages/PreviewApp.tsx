@@ -19,16 +19,8 @@ const PreviewApp = () => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
 
-  const currentPath = location.pathname.includes(`/preview/apps/${appName}`) 
-    ? location.pathname.split(`${appName}`)[1] || '/' 
-    : '/';
-
   const loadPreview = async () => {
-    if (!appName) {
-      setLoading(false);
-      return;
-    }
-
+    if (!appName) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -37,149 +29,82 @@ const PreviewApp = () => {
         .eq('app_name', appName)
         .single();
 
-      if (error) {
-        console.error('Error loading preview:', error);
-      } else if (data) {
+      if (data) {
         setPreviewCode(data.html_content);
-        if (data.files && typeof data.files === 'object') {
-          setProjectFiles(data.files as FileMap);
-        } else {
-          setProjectFiles({ 'index.html': data.html_content });
-        }
+        setProjectFiles(data.files && typeof data.files === 'object' ? (data.files as FileMap) : { 'index.html': data.html_content });
         setIframeKey(prev => prev + 1);
       }
     } catch (err) {
-      console.error('Failed to load preview:', err);
+      console.error('Error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadPreview();
-  }, [appName]);
-
-  const handleOpenExternal = () => {
-    if (deployedUrl) {
-      window.open(deployedUrl, '_blank', 'noopener,noreferrer');
-    } else {
-      window.open(window.location.href, '_blank', 'noopener,noreferrer');
-    }
-  };
+  useEffect(() => { loadPreview(); }, [appName]);
 
   const handleDeployToVercel = async () => {
-    if (!appName) {
-      toast.error('No app name specified');
-      return;
-    }
-
+    if (!appName) return toast.error('App name missing');
     setIsDeploying(true);
+    
     try {
-      // ১. ফাইলগুলো পাঠানোর আগে পাথ ক্লিন করা
-      const filesToDeploy: FileMap = {};
+      // ১. ফাইল পাথের শুরু থেকে '/' সরিয়ে ক্লিন করা (Vercel Fix)
+      const cleanedFiles: FileMap = {};
       Object.entries(projectFiles).forEach(([path, content]) => {
         const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-        filesToDeploy[cleanPath] = content;
+        cleanedFiles[cleanPath] = content;
       });
 
-      // ২. ইনডেক্স ফাইল চেক করা
-      if (!filesToDeploy['index.html'] && previewCode) {
-        filesToDeploy['index.html'] = previewCode;
+      // ২. index.html নিশ্চিত করা
+      if (!cleanedFiles['index.html'] && previewCode) {
+        cleanedFiles['index.html'] = previewCode;
       }
 
-      // ৩. এজ ফাংশন কল করা
+      // ৩. এজ ফাংশন কল
       const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-        body: {
-          appName: appName,
-          files: filesToDeploy,
-        }
+        body: { appName, files: cleanedFiles }
       });
 
       if (error) throw error;
 
-      if (data?.success && data?.url) {
+      if (data?.success) {
         setDeployedUrl(data.url);
-        toast.success(`Deployed successfully!`, {
-          description: data.url,
-          action: {
-            label: 'Open',
-            onClick: () => window.open(data.url, '_blank')
-          }
-        });
+        toast.success("ডেপ্লয়মেন্ট সফল হয়েছে!", { description: data.url });
       } else {
-        throw new Error(data?.error || 'Deployment failed');
+        throw new Error(data?.error || "Deployment failed");
       }
     } catch (err: any) {
-      console.error('Vercel deployment error:', err);
-      toast.error('Deployment failed', {
-        description: err.message || 'Please try again'
-      });
+      toast.error("ফাইল পাঠাতে সমস্যা হয়েছে", { description: err.message });
     } finally {
       setIsDeploying(false);
     }
   };
 
-  const processHtmlContent = (html: string) => {
-    const routingFixScript = `
-      <script>
-        document.addEventListener('click', function(e) {
-          const link = e.target.closest('a');
-          if (link) {
-            const href = link.getAttribute('href');
-            if (href && (href.startsWith('/') || href.startsWith('#'))) {
-              e.preventDefault();
-              if (href.includes('register')) {
-                document.body.innerHTML = '<h2>Redirecting to Register...</h2>';
-              } else {
-                window.location.reload();
-              }
-            }
-          }
-        }, true);
-      </script>
-    `;
-    return html.includes('</body>') ? html.replace('</body>', routingFixScript + '</body>') : html + routingFixScript;
-  };
-
   return (
     <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
-      <header className="h-14 bg-card border-b border-border flex items-center justify-between px-4 shrink-0 z-50">
+      <header className="h-14 bg-card border-b flex items-center justify-between px-4 z-50">
         <div className="flex items-center gap-3">
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">Back to IDE</span>
-            </Button>
-          </Link>
-          <div className="flex items-center gap-2 bg-muted/80 px-3 py-1.5 rounded-full border border-border">
-            <Lock className="w-3 h-3 text-green-500" />
-            <span className="text-xs font-mono truncate max-w-[150px]">
-              vibe-ai.app/{appName}<span className="text-primary font-bold">{currentPath}</span>
-            </span>
+          <Link to="/"><Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button></Link>
+          <div className="bg-muted px-3 py-1 rounded-full text-xs font-mono">
+            vibe-ai.app/{appName}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={loadPreview} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="icon" onClick={loadPreview} disabled={loading}>
+            <RefreshCw className={loading ? 'animate-spin' : ''} size={16} />
           </Button>
-          
-          <Button 
-            variant="default" 
-            size="sm" 
-            onClick={handleDeployToVercel} 
-            disabled={isDeploying || !previewCode}
-          >
-            {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-            <span className="ml-2 hidden sm:inline">{isDeploying ? 'Deploying...' : 'Deploy to Vercel'}</span>
+          <Button onClick={handleDeployToVercel} disabled={isDeploying || !previewCode}>
+            {isDeploying ? <Loader2 className="animate-spin mr-2" size={16} /> : <Rocket className="mr-2" size={16} />}
+            {isDeploying ? 'Sending...' : 'Deploy to Vercel'}
           </Button>
         </div>
       </header>
 
-      <main className="flex-1 w-full bg-white relative">
+      <main className="flex-1 relative bg-white">
         <iframe
           key={iframeKey}
-          srcDoc={loading ? "Loading..." : processHtmlContent(previewCode || "")}
+          srcDoc={previewCode || ""}
           className="absolute inset-0 w-full h-full border-0"
           sandbox="allow-scripts allow-forms allow-same-origin"
         />
