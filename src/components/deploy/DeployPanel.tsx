@@ -4,14 +4,14 @@ import {
   Loader2, CheckCircle2, AlertCircle, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client'; // Supabase ইমপোর্ট নিশ্চিত করুন
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface DeployPanelProps {
   isOpen: boolean;
   onClose: () => void;
   projectName: string;
-  projectFiles: Record<string, string>; // প্রজেক্টের সব ফাইল এখানে থাকতে হবে
+  projectFiles: Record<string, string> | null | undefined; // Null safe করা হলো
 }
 
 type DeployStatus = 'idle' | 'deploying' | 'success' | 'error';
@@ -24,24 +24,33 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
 
   if (!isOpen) return null;
 
- const handleDeployToVercel = async () => {
-  if (!appName) return toast.error('App name missing');
-  
-  setIsDeploying(true);
-  try {
-    const filesToDeploy: FileMap = {};
+  const handleDeploy = async () => {
+    // প্রজেক্টের নাম বা ফাইল না থাকলে ডেপ্লয় হবে না
+    if (!projectName) return toast.error('Project name missing');
     
-    // Safety Check: projectFiles যদি null হয় তবে খালি অবজেক্ট নিবে
-    const safeFiles = projectFiles || {}; 
+    setStatus('deploying');
+    setErrorMessage('');
+    
+    try {
+      const filesToDeploy: Record<string, string> = {};
+      
+      // Safety Check: projectFiles যদি null/undefined হয় তবে খালি অবজেক্ট ব্যবহার হবে
+      const safeFiles = projectFiles ?? {};
 
-    Object.entries(safeFiles).forEach(([path, content]) => {
-      if (path && content) { // নিশ্চিত হওয়া যে পাথ ও কন্টেন্ট আছে
-        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-        filesToDeploy[cleanPath] = content;
-      }
-    });
+      Object.entries(safeFiles).forEach(([path, content]) => {
+        if (path && content) {
+          const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+          filesToDeploy[cleanPath] = content;
+        }
+      });
 
-    // বাকি কোড...
+      // সুপাবেজ এজ ফাংশন কল
+      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+        body: { 
+          appName: projectName, 
+          files: filesToDeploy 
+        }
+      });
 
       if (error) throw error;
 
@@ -61,23 +70,24 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
   };
 
   const handleCopy = () => {
+    if (!deployUrl) return;
     navigator.clipboard.writeText(deployUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-2xl overflow-hidden animate-scale-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
               <Rocket className="w-4 h-4 text-white" />
             </div>
-            <span className="font-semibold">Deploy to Vercel</span>
+            <span className="font-semibold text-white">Deploy to Vercel</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} disabled={status === 'deploying'}>
+          <Button variant="ghost" size="icon" onClick={onClose} disabled={status === 'deploying'} className="text-slate-400 hover:text-white">
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -86,13 +96,13 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
         <div className="p-6">
           {status === 'idle' && (
             <div className="text-center space-y-4">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-green-500/10 flex items-center justify-center">
-                <Globe className="w-8 h-8 text-green-500" />
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-orange-500/10 flex items-center justify-center">
+                <Globe className="w-8 h-8 text-orange-500" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold">Ready to Go Live?</h3>
-                <p className="text-sm text-muted-foreground">
-                  Your project with {Object.keys(projectFiles).length} files will be deployed.
+                <h3 className="text-lg font-semibold text-white">Ready to Go Live?</h3>
+                <p className="text-sm text-slate-400">
+                  Your project "{projectName}" with {Object.keys(projectFiles ?? {}).length} files is ready.
                 </p>
               </div>
             </div>
@@ -100,10 +110,10 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
 
           {status === 'deploying' && (
             <div className="text-center space-y-4 py-4">
-              <Loader2 className="w-12 h-12 mx-auto text-green-500 animate-spin" />
-              <h3 className="text-lg font-semibold">Deploying Files...</h3>
-              <p className="text-sm text-muted-foreground italic">
-                আপনার ৪জিবি র‍্যামের পিসিতে প্রসেস হতে ১-২ মিনিট লাগতে পারে, দয়া করে অপেক্ষা করুন।
+              <Loader2 className="w-12 h-12 mx-auto text-orange-500 animate-spin" />
+              <h3 className="text-lg font-semibold text-white">Deploying...</h3>
+              <p className="text-sm text-slate-400 italic">
+                আপনার পিসিতে প্রোসেসিং হতে কিছুটা সময় লাগতে পারে।
               </p>
             </div>
           )}
@@ -111,11 +121,11 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'success' && (
             <div className="text-center space-y-4">
               <CheckCircle2 className="w-16 h-16 mx-auto text-green-500" />
-              <h3 className="text-lg font-semibold">Successfully Deployed!</h3>
-              <div className="bg-secondary p-3 rounded-lg flex items-center gap-2">
-                <code className="flex-1 text-xs truncate text-green-600 font-bold">{deployUrl}</code>
-                <Button variant="ghost" size="sm" onClick={handleCopy}>
-                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              <h3 className="text-lg font-semibold text-white">Deployment Live!</h3>
+              <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 flex items-center gap-2">
+                <code className="flex-1 text-xs truncate text-orange-400 font-bold">{deployUrl}</code>
+                <Button variant="ghost" size="sm" onClick={handleCopy} className="hover:bg-slate-800">
+                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-slate-400" />}
                 </Button>
               </div>
             </div>
@@ -124,31 +134,31 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'error' && (
             <div className="text-center space-y-4">
               <AlertCircle className="w-16 h-16 mx-auto text-red-500" />
-              <h3 className="text-lg font-semibold text-red-500">Error Occurred</h3>
-              <p className="text-sm text-muted-foreground bg-red-50/10 p-2 rounded border border-red-500/20">
+              <h3 className="text-lg font-semibold text-red-500">Error</h3>
+              <p className="text-sm text-slate-400 bg-red-500/10 p-2 rounded border border-red-500/20">
                 {errorMessage}
               </p>
             </div>
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 bg-secondary/30 border-t flex justify-end gap-2">
+        {/* Footer */}
+        <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-end gap-2">
           {status !== 'deploying' && (
-            <Button variant="outline" onClick={onClose}>Close</Button>
+            <Button variant="outline" onClick={onClose} className="border-slate-700 text-slate-300 hover:bg-slate-800">Close</Button>
           )}
           {status === 'idle' && (
-            <Button onClick={handleDeploy} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={handleDeploy} className="bg-orange-600 hover:bg-orange-700 text-white">
               Confirm & Deploy
             </Button>
           )}
           {status === 'success' && (
-            <Button onClick={() => window.open(deployUrl, '_blank')} className="gap-2">
+            <Button onClick={() => window.open(deployUrl, '_blank')} className="bg-orange-600 hover:bg-orange-700 text-white gap-2">
               <ExternalLink className="w-4 h-4" /> Open App
             </Button>
           )}
           {status === 'error' && (
-            <Button onClick={handleDeploy}>Try Again</Button>
+            <Button onClick={handleDeploy} className="bg-slate-700 hover:bg-slate-600">Try Again</Button>
           )}
         </div>
       </div>
