@@ -14,6 +14,7 @@ import {
   X,
   Edit3,
   ThumbsUp,
+  ThumbsDown,
   RefreshCw,
   Lightbulb,
   Shield,
@@ -36,7 +37,6 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
-// --- Interfaces ---
 interface Feature {
   id: number;
   name: string;
@@ -79,7 +79,7 @@ interface ExecutionPlan {
   };
   features?: Feature[];
   userFlow?: UserFlowStep[];
-  steps?: unknown[]; // any বদলে unknown ব্যবহার করা নিরাপদ
+  steps?: any[];
   files: PlanFile[];
   risks?: Risk[];
   futureConsiderations?: string[];
@@ -111,13 +111,14 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
     future: false,
   });
 
-  // --- Handlers ---
   const handleGeneratePlan = async (mode: 'new' | 'revise' = 'new') => {
     const message = mode === 'revise' ? feedback : input;
     if (!message.trim() || isLoading) return;
 
     setIsLoading(true);
-    if (mode === 'new') setPlan(null);
+    if (mode === 'new') {
+      setPlan(null);
+    }
 
     try {
       const response = await fetch(PLAN_URL, {
@@ -133,30 +134,39 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        if (response.status === 429) throw new Error('খুব বেশি রিকোয়েস্ট পাঠাচ্ছেন। কিছুক্ষণ পর চেষ্টা করুন।');
-        if (response.status === 402) throw new Error('ক্রেডিট শেষ হয়ে গেছে। দয়া করে ফান্ড অ্যাড করুন।');
-        throw new Error(data.error || 'প্ল্যান তৈরি করতে সমস্যা হয়েছে।');
+        const errorData = await response.json();
+        if (response.status === 429) {
+          toast.error('Rate limit exceeded. Please try again later.');
+          return;
+        }
+        if (response.status === 402) {
+          toast.error('Credits exhausted. Please add funds.');
+          return;
+        }
+        throw new Error(errorData.error || 'Failed to generate plan');
       }
 
+      const data = await response.json();
+      
       if (data.plan) {
-        // নতুন ফিচার আসলে ডিফল্টভাবে approved false থাকবে
-        const updatedPlan = { ...data.plan };
-        if (updatedPlan.features) {
-          updatedPlan.features = updatedPlan.features.map((f: Feature) => ({
+        // Initialize features as not approved
+        if (data.plan.features) {
+          data.plan.features = data.plan.features.map((f: Feature) => ({
             ...f,
-            approved: f.priority === 'must' // 'must' ফিচারগুলো অটো-চেক থাকতে পারে চাইলে
+            approved: false
           }));
         }
-        setPlan(updatedPlan);
+        setPlan(data.plan);
         setShowFeedback(false);
         setFeedback('');
-        toast.success('প্ল্যান রেডি! একটু চেক করে দেখুন।');
+        toast.success('প্ল্যান তৈরি হয়েছে! Review করুন।');
+      } else {
+        throw new Error(data.error || 'No plan generated');
       }
-    } catch (error: any) {
-      toast.error(error.message);
+    } catch (error) {
+      console.error('Plan error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to generate plan');
     } finally {
       setIsLoading(false);
     }
@@ -178,7 +188,7 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
       ...plan,
       features: plan.features.filter(f => f.id !== featureId)
     });
-    toast.success('ফিচারটি বাদ দেওয়া হয়েছে।');
+    toast.success('Feature removed');
   };
 
   const moveToFuture = (featureId: number) => {
@@ -189,21 +199,27 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
         f.id === featureId ? { ...f, priority: 'future' as const, approved: false } : f
       )
     });
-    toast.success('ভবিষ্যতের জন্য সেভ করা হলো।');
+    toast.success('Feature moved to future');
   };
 
   const handleExecute = () => {
     if (!plan) return;
     
+    // Filter to only approved features
     const approvedFeatures = plan.features?.filter(f => f.approved && f.priority !== 'future') || [];
     
     if (approvedFeatures.length === 0 && plan.features && plan.features.length > 0) {
-      toast.error('কাজ শুরু করতে অন্তত একটি ফিচার সিলেক্ট করুন।');
+      toast.error('কমপক্ষে একটি feature approve করুন');
       return;
     }
 
-    onExecutePlan({ ...plan, features: approvedFeatures });
-    toast.success('কাজ শুরু হচ্ছে...');
+    const executionPlan = {
+      ...plan,
+      features: approvedFeatures
+    };
+
+    onExecutePlan(executionPlan);
+    toast.success('প্ল্যান execute হচ্ছে...');
   };
 
   const approveAll = () => {
@@ -214,30 +230,48 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
         f.priority !== 'future' ? { ...f, approved: true } : f
       )
     });
+    toast.success('All features approved');
   };
 
-  // --- Helpers ---
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   const getComplexityColor = (complexity: string) => {
-    const colors = {
-      simple: 'text-green-400 bg-green-500/20',
-      medium: 'text-yellow-400 bg-yellow-500/20',
-      complex: 'text-red-400 bg-red-500/20'
-    };
-    return colors[complexity as keyof typeof colors] || 'text-muted-foreground bg-muted';
+    switch (complexity) {
+      case 'simple': return 'text-green-400 bg-green-500/20';
+      case 'medium': return 'text-yellow-400 bg-yellow-500/20';
+      case 'complex': return 'text-red-400 bg-red-500/20';
+      default: return 'text-muted-foreground bg-muted';
+    }
   };
 
   const getPriorityColor = (priority: string) => {
-    const colors = {
-      must: 'bg-red-500/20 text-red-400 border-red-500/30',
-      should: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      could: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      future: 'bg-purple-500/20 text-purple-400 border-purple-500/30'
-    };
-    return colors[priority as keyof typeof colors] || 'bg-muted text-muted-foreground';
+    switch (priority) {
+      case 'must': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      case 'should': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'could': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'future': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+      default: return 'bg-muted text-muted-foreground';
+    }
+  };
+
+  const getEffortIcon = (effort: string) => {
+    switch (effort) {
+      case 'low': return <Zap className="w-3 h-3 text-green-400" />;
+      case 'medium': return <Clock className="w-3 h-3 text-yellow-400" />;
+      case 'high': return <AlertTriangle className="w-3 h-3 text-red-400" />;
+      default: return null;
+    }
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'low': return 'text-green-400';
+      case 'medium': return 'text-yellow-400';
+      case 'high': return 'text-red-400';
+      default: return 'text-muted-foreground';
+    }
   };
 
   const getActionIcon = (action: string) => {
@@ -250,133 +284,225 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1a1a2e] text-slate-200">
+    <div className="h-full flex flex-col bg-[#1a1a2e]">
       {/* Header */}
-      <div className="p-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <Target className="w-5 h-5 text-white" />
+      <div className="p-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+            <Target className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="font-bold text-sm tracking-tight">AI Architect</h2>
-            <p className="text-[11px] text-slate-400">প্ল্যানিং থেকে প্রোডাকশন — সবই এক জায়গায়</p>
+            <h2 className="font-semibold text-foreground text-sm">AI Architect</h2>
+            <p className="text-xs text-muted-foreground">তোমার আইডিয়া → AI প্ল্যান → তোমার সিদ্ধান্ত</p>
           </div>
         </div>
       </div>
 
-      {/* Input Area */}
+      {/* Input */}
       {!plan && (
-        <div className="p-4 border-b border-white/5 bg-white/5">
-          <div className="mb-2 flex items-center gap-2">
-            <Zap className="w-3.5 h-3.5 text-yellow-400" />
-            <span className="text-xs font-medium text-slate-300">নতুন প্রজেক্টের আইডিয়া লিখুন</span>
+        <div className="p-3 border-b border-border">
+          <div className="mb-2">
+            <span className="text-xs text-muted-foreground">
+              🚀 তোমার আইডিয়া বলো (এলোমেলো হলেও চলবে)
+            </span>
           </div>
-          <div className="relative group">
+          <div className="relative">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleGeneratePlan('new'))}
-              placeholder="যেমন: বগুড়ার দই বিক্রির জন্য একটা ই-কমার্স অ্যাপ চাই..."
-              className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 pr-12 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all placeholder:text-slate-600"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleGeneratePlan('new');
+                }
+              }}
+              placeholder="যেমন: একটা vibe code web বানাতে চাই gemini api দিয়ে..."
+              className="w-full bg-background/50 border border-border rounded-lg px-3 py-2 pr-10 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
               rows={3}
             />
             <Button
               variant="glow"
-              size="icon"
-              className="absolute right-2 bottom-2 rounded-lg"
+              size="icon-sm"
+              className="absolute right-2 bottom-2"
               onClick={() => handleGeneratePlan('new')}
               disabled={!input.trim() || isLoading}
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {isLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
             </Button>
           </div>
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Plan Display */}
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-4">
+        <div className="p-3">
           {isLoading && !plan && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="relative mb-4">
-                <Loader2 className="w-10 h-10 animate-spin text-purple-500" />
-                <Sparkles className="w-5 h-5 absolute -top-1 -right-1 text-yellow-400 animate-pulse" />
-              </div>
-              <p className="text-sm font-medium">আইডিয়া প্রসেস হচ্ছে...</p>
-              <p className="text-xs text-slate-500 mt-1">টেক-স্ট্যাক এবং রিস্ক অ্যানালাইসিস করছি</p>
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin mb-2" />
+              <p className="text-sm">আইডিয়া analyze করছি...</p>
+              <p className="text-xs mt-1">ঝুঁকি, feasibility সব দেখছি</p>
             </div>
           )}
 
           {plan && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-              {/* Plan Overview Card */}
-              <div className="bg-slate-800/40 rounded-xl p-4 border border-white/10 shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="font-bold text-slate-100">{plan.title}</h3>
-                  <Button variant="ghost" size="icon-sm" onClick={() => (setPlan(null), setInput(''))}>
-                    <X className="w-4 h-4 text-slate-500 hover:text-red-400" />
+            <div className="space-y-4 animate-fade-in">
+              {/* Plan Header */}
+              <div className="bg-background/50 rounded-lg p-3 border border-border">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-medium text-foreground">{plan.title}</h3>
+                    <p className="text-xs text-muted-foreground mt-1">{plan.summary}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => {
+                      setPlan(null);
+                      setInput('');
+                    }}
+                  >
+                    <X className="w-4 h-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">{plan.summary}</p>
-                <div className="flex items-center gap-3">
-                  <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", getComplexityColor(plan.complexity))}>
+                
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <span className={cn("px-2 py-0.5 rounded text-xs font-medium", getComplexityColor(plan.complexity))}>
                     {plan.complexity}
                   </span>
                   {plan.estimatedTime && (
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <Clock className="w-3.5 h-3.5" />
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
                       {plan.estimatedTime}
-                    </div>
+                    </span>
                   )}
                 </div>
               </div>
 
-              {/* AI Insight Section */}
+              {/* AI Recommendation */}
               {plan.aiRecommendation && (
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex gap-3">
-                  <Lightbulb className="w-5 h-5 text-blue-400 shrink-0" />
-                  <div>
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">AI Insight</span>
-                    <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">{plan.aiRecommendation}</p>
+                <div className="bg-primary/10 border border-primary/30 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <Lightbulb className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-xs font-medium text-primary">AI Recommendation</span>
+                      <p className="text-xs text-foreground/80 mt-1">{plan.aiRecommendation}</p>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Features Accordion */}
-              {plan.features && (
-                <Collapsible open={expandedSections.features} onOpenChange={() => toggleSection('features')}>
-                  <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all">
+              {/* Questions */}
+              {plan.questions && plan.questions.length > 0 && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <HelpCircle className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-400">স্পষ্ট করা দরকার</span>
+                  </div>
+                  <ul className="space-y-1">
+                    {plan.questions.map((q, i) => (
+                      <li key={i} className="text-xs text-muted-foreground">• {q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Tech Stack */}
+              {plan.techStack && (
+                <Collapsible open={expandedSections.techStack} onOpenChange={() => toggleSection('techStack')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-semibold">ফিচার লিস্ট ({plan.features.filter(f => f.approved).length}/{plan.features.length})</span>
+                      <Package className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium">Tech Stack</span>
+                    </div>
+                    {expandedSections.techStack ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 px-3 space-y-2">
+                    {Object.entries(plan.techStack).map(([category, items]) => (
+                      items.length > 0 && (
+                        <div key={category}>
+                          <span className="text-[10px] uppercase text-muted-foreground">{category}</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {items.map((item, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-secondary rounded text-xs">{item}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Features - Editable */}
+              {plan.features && plan.features.length > 0 && (
+                <Collapsible open={expandedSections.features} onOpenChange={() => toggleSection('features')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium">Features ({plan.features.filter(f => f.approved).length}/{plan.features.length} approved)</span>
                     </div>
                     {expandedSections.features ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-2 space-y-2">
-                    <div className="flex justify-end pr-1">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-6 text-slate-400" onClick={approveAll}>
-                        <ThumbsUp className="w-3 h-3 mr-1" /> Approve All
+                  <CollapsibleContent className="mt-2 space-y-2">
+                    <div className="flex justify-end">
+                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={approveAll}>
+                        <ThumbsUp className="w-3 h-3 mr-1" />
+                        Approve All
                       </Button>
                     </div>
                     {plan.features.map((feature) => (
-                      <div key={feature.id} className={cn("rounded-xl p-3 border transition-all duration-300", feature.approved ? "bg-emerald-500/5 border-emerald-500/20 shadow-inner" : "bg-slate-900/30 border-white/5 opacity-80")}>
-                        <div className="flex items-start gap-3">
-                          <Checkbox checked={feature.approved} onCheckedChange={() => toggleFeatureApproval(feature.id)} className="mt-1 border-slate-600" />
+                      <div
+                        key={feature.id}
+                        className={cn(
+                          "rounded-lg p-3 border transition-colors",
+                          feature.approved 
+                            ? "bg-green-500/10 border-green-500/30" 
+                            : "bg-background/30 border-border"
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <Checkbox
+                            checked={feature.approved}
+                            onCheckedChange={() => toggleFeatureApproval(feature.id)}
+                            className="mt-1"
+                          />
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-sm font-bold text-slate-200">{feature.name}</span>
-                              <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold border capitalize", getPriorityColor(feature.priority))}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium">{feature.name}</span>
+                              <span className={cn("px-1.5 py-0.5 rounded text-[10px] border", getPriorityColor(feature.priority))}>
                                 {feature.priority}
                               </span>
+                              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                {getEffortIcon(feature.effort)}
+                                {feature.effort}
+                              </span>
                             </div>
-                            <p className="text-xs text-slate-500 leading-snug">{feature.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{feature.description}</p>
                           </div>
-                          <div className="flex flex-col gap-1">
-                            <Button variant="ghost" size="icon-sm" className="h-7 w-7" onClick={() => moveToFuture(feature.id)} title="ভবিষ্যতের জন্য">
-                              <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                            </Button>
-                            <Button variant="ghost" size="icon-sm" className="h-7 w-7 hover:bg-red-500/10" onClick={() => removeFeature(feature.id)}>
-                              <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-400" />
+                          <div className="flex items-center gap-1">
+                            {feature.priority !== 'future' && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-6 w-6"
+                                onClick={() => moveToFuture(feature.id)}
+                                title="Move to future"
+                              >
+                                <Calendar className="w-3 h-3" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="h-6 w-6 text-destructive"
+                              onClick={() => removeFeature(feature.id)}
+                              title="Remove feature"
+                            >
+                              <X className="w-3 h-3" />
                             </Button>
                           </div>
                         </div>
@@ -386,69 +512,182 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
                 </Collapsible>
               )}
 
-              {/* Dynamic Sections (Tech, Risks, Files) - Similar UI Pattern */}
-              {/* Tech Stack */}
-              {plan.techStack && (
-                <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Package className="w-4 h-4 text-purple-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Tech Stack</span>
-                 <div className="grid grid-cols-2 gap-3">
-  {plan?.techStack && Object.entries(plan.techStack).map(([cat, items]) => (
-    // নিশ্চিত হওয়া যে items একটি Array এবং তা খালি নয়
-    Array.isArray(items) && items.length > 0 && (
-      <div key={cat} className="space-y-1">
-        <span className="text-[9px] text-slate-500 uppercase">{cat}</span>
-        <div className="flex flex-wrap gap-1">
-          {items.map(i => (
-            <span 
-              key={`${cat}-${i}`} // কী (key) আরও ইউনিক করা হলো
-              className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-300"
-            >
-              {i}
-            </span>
-          ))}
-        </div>
-      </div>
-    )
-  ))}
-</div>
+              {/* User Flow */}
+              {plan.userFlow && plan.userFlow.length > 0 && (
+                <Collapsible open={expandedSections.userFlow} onOpenChange={() => toggleSection('userFlow')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <ArrowRight className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium">User Flow</span>
+                    </div>
+                    {expandedSections.userFlow ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 space-y-2">
+                    {plan.userFlow.map((step, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-2 bg-background/30 rounded">
+                        <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center shrink-0">
+                          {step.step}
+                        </span>
+                        <div className="flex-1">
+                          <p className="text-xs">{step.action}</p>
+                          <p className="text-[10px] text-muted-foreground">→ {step.result}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
               )}
 
-              {/* Execution Actions */}
-              <div className="pt-4 space-y-2 sticky bottom-0 bg-gradient-to-t from-[#1a1a2e] via-[#1a1a2e] to-transparent p-2">
-                {!showFeedback ? (
-                  <Button variant="outline" className="w-full h-10 border-white/10 hover:bg-white/5" onClick={() => setShowFeedback(true)}>
-                    <Edit3 className="w-4 h-4 mr-2" /> কিছু পরিবর্তন করতে চান?
-                  </Button>
-                ) : (
-                  <div className="bg-slate-800 rounded-xl p-3 border border-purple-500/30 animate-in zoom-in-95">
-                    <textarea
-                      value={feedback}
-                      onChange={(e) => setFeedback(e.target.value)}
-                      placeholder="যেমন: স্ট্যাক পাল্টে সুপাবেস ব্যবহার করো..."
-                      className="w-full bg-slate-900/50 border-none text-xs p-2 rounded-lg mb-2 focus:ring-0"
-                      rows={2}
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleGeneratePlan('revise')} disabled={!feedback.trim() || isLoading}>
-                        {isLoading ? <Loader2 className="animate-spin w-3 h-3" /> : <RefreshCw className="w-3 h-3 mr-1" />} রিভাইজ করুন
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setShowFeedback(false)}>বাতিল</Button>
+              {/* Files */}
+              {plan.files && plan.files.length > 0 && (
+                <Collapsible open={expandedSections.files} onOpenChange={() => toggleSection('files')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <FileCode className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium">Files ({plan.files.length})</span>
                     </div>
+                    {expandedSections.files ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 space-y-1">
+                    {plan.files.map((file, i) => (
+                      <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-background/30">
+                        {getActionIcon(file.action)}
+                        <span className="text-xs font-mono flex-1 truncate">{file.path}</span>
+                        <span className="text-[10px] text-muted-foreground">{file.action}</span>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Risks */}
+              {plan.risks && plan.risks.length > 0 && (
+                <Collapsible open={expandedSections.risks} onOpenChange={() => toggleSection('risks')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-red-400" />
+                      <span className="text-xs font-medium text-red-400">Risks ({plan.risks.length})</span>
+                    </div>
+                    {expandedSections.risks ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 space-y-2">
+                    {plan.risks.map((risk, i) => (
+                      <div key={i} className="bg-background/30 rounded-lg p-3 border border-border">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={cn("text-xs font-medium", getSeverityColor(risk.severity))}>
+                            [{risk.severity.toUpperCase()}]
+                          </span>
+                          <span className="text-xs text-muted-foreground">{risk.type}</span>
+                        </div>
+                        <p className="text-xs">{risk.description}</p>
+                        <p className="text-[10px] text-green-400 mt-1">✓ {risk.mitigation}</p>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Future Considerations */}
+              {plan.futureConsiderations && plan.futureConsiderations.length > 0 && (
+                <Collapsible open={expandedSections.future} onOpenChange={() => toggleSection('future')}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-purple-400" />
+                      <span className="text-xs font-medium text-purple-400">Future</span>
+                    </div>
+                    {expandedSections.future ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 px-3">
+                    <ul className="space-y-1">
+                      {plan.futureConsiderations.map((item, i) => (
+                        <li key={i} className="text-xs text-muted-foreground">• {item}</li>
+                      ))}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Warnings */}
+              {plan.warnings && plan.warnings.length > 0 && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-400">সতর্কতা</span>
                   </div>
+                  <ul className="space-y-1">
+                    {plan.warnings.map((w, i) => (
+                      <li key={i} className="text-xs text-muted-foreground">• {w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Feedback Input */}
+              {showFeedback && (
+                <div className="bg-background/50 rounded-lg p-3 border border-border">
+                  <span className="text-xs text-muted-foreground mb-2 block">পরিবর্তন চাও? বলো:</span>
+                  <textarea
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    placeholder="যেমন: এই feature বাদ দাও, এইটা simple কর..."
+                    className="w-full bg-background/50 border border-border rounded px-2 py-1.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    rows={2}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      className="flex-1 gap-1"
+                      onClick={() => handleGeneratePlan('revise')}
+                      disabled={!feedback.trim() || isLoading}
+                    >
+                      {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      Revise
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowFeedback(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-2">
+                {!showFeedback && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2"
+                    onClick={() => setShowFeedback(true)}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    পরিবর্তন চাই
+                  </Button>
                 )}
-                <Button className="w-full h-11 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg shadow-purple-500/20" onClick={handleExecute} disabled={isLoading}>
-                  <Play className="w-4 h-4 mr-2 fill-current" /> কাজ শুরু করুন
+                <Button
+                  className="w-full gap-2"
+                  onClick={handleExecute}
+                  disabled={isLoading}
+                >
+                  <Play className="w-4 h-4" />
+                  Approve & Execute
                 </Button>
               </div>
             </div>
           )}
 
           {!isLoading && !plan && (
-            <div className="py-20 flex flex-col items-center justify-center opacity-30 grayscale">
-              <Zap className="w-16 h-16 mb-4" />
-              <p className="text-sm">নতুন কিছু শুরু করা যাক?</p>
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Zap className="w-12 h-12 mb-3 opacity-20" />
+              <p className="text-sm text-center mb-2">
+                তোমার আইডিয়া বলো
+              </p>
+              <p className="text-xs text-center opacity-70">
+                AI analyze করবে, প্ল্যান দেবে, তুমি approve করবে
+              </p>
             </div>
           )}
         </div>
