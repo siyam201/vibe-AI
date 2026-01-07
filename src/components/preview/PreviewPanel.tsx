@@ -272,13 +272,50 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDeploy = () => {
+ const handleDeploy = async () => {
     setIsDeploying(true);
-    setTimeout(() => {
+    
+    try {
+      // ১. স্যান্ডবক্স কোড জেনারেট করা
+      const sandboxCode = generateSandboxCode();
+      
+      // ২. সুপাবেজ ডাটাবেসে (app_previews) লেটেস্ট ডাটা সেভ করা
+      // এখানে files অবজেক্টটিও পাঠানো হচ্ছে যাতে ভিজিটররা সব ফাইল পায়
+      const { error: upsertError } = await supabase
+        .from('app_previews')
+        .upsert({ 
+          app_name: safeName, 
+          html_content: sandboxCode,
+          files: files // আপনার ১৭-১৮টি ফাইলের ম্যাপ
+        }, { 
+          onConflict: 'app_name' 
+        });
+
+      if (upsertError) throw upsertError;
+
+      // ৩. আপনার এজ ফাংশন (vercel-deploy) কল করা (যদি সরাসরি ভার্সেলে পাঠাতে চান)
+      const { data, error: deployError } = await supabase.functions.invoke('vercel-deploy', {
+        body: { 
+          appName: safeName, 
+          files: files 
+        }
+      });
+
+      if (deployError) throw deployError;
+
+      if (data?.success) {
+        setIsDeployed(true);
+        toast.success(`সফলভাবে ডিপ্লয় হয়েছে: ${data.url}`);
+      } else {
+        throw new Error(data?.error || 'ডিপ্লয়মেন্ট ব্যর্থ হয়েছে');
+      }
+
+    } catch (err: any) {
+      console.error('Deployment error:', err);
+      toast.error('Error: ' + err.message);
+    } finally {
       setIsDeploying(false);
-      setIsDeployed(true);
-      toast.success(`Deployed to ${fullUrl}`);
-    }, 2000);
+    }
   };
 
   const deviceWidths = {
