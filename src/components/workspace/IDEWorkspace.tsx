@@ -48,125 +48,83 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     projects,
     currentProject,
     updateProjectFiles,
-    loadProject,
-    createProject,
-    deleteProject,
-    duplicateProject
+    loadProject
   } = useProjectHistory();
 
-  // --- States ---
   const [files, setFiles] = useState<FileItem[]>([]);
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [isSyncing, setIsSyncing] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [rightPanel, setRightPanel] = useState<'chat' | 'preview'>('chat');
-  const [showProjectHistory, setShowProjectHistory] = useState(false);
 
-  const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
-
-  // ১. ইউআরএল থেকে প্রোজেক্ট চিনে ডাটাবেজ থেকে ডাটা আনা
+  // ১. মাউন্ট হওয়ার সাথে সাথে ডাটাবেজ থেকে ফাইলগুলো জোর করে নামিয়ে আনা
   useEffect(() => {
-    const syncProject = async () => {
-      if (projects.length > 0) {
+    const initWorkspace = async () => {
+      setIsSyncing(true);
+      try {
         const decodedName = decodeURIComponent(projectName);
         const target = projects.find(p => p.name === decodedName);
         
         if (target) {
-          if (currentProject?.id !== target.id) {
-            console.log("Database-থেকে ফাইল লোড হচ্ছে...");
-            await loadProject(target.id);
+          // সুপাবেস থেকে লেটেস্ট ডাটা রি-ফেচ করা (রিফ্রেশ এরর এড়াতে)
+          const { data, error } = await supabase
+            .from('projects')
+            .select('files')
+            .eq('id', target.id)
+            .single();
+
+          if (data?.files) {
+            setFiles(data.files as any);
+            // প্রথম ফাইলটি (যেমন index.html) অটো ওপেন করা
+            const firstFile = (data.files as any)[0];
+            if (firstFile && openTabs.length === 0) {
+              setOpenTabs([{ id: firstFile.id, name: firstFile.name, language: 'html' }]);
+              setActiveTabId(firstFile.id);
+            }
           }
-          setIsSyncing(false);
-        } else {
-          // যদি প্রোজেক্ট খুঁজে না পায় তবে ৩ সেকেন্ড পর লোডিং বন্ধ হবে
-          setTimeout(() => setIsSyncing(false), 3000);
+          await loadProject(target.id);
         }
+      } catch (err) {
+        console.error("Initialization failed:", err);
+      } finally {
+        setIsSyncing(false);
       }
     };
-    syncProject();
-  }, [projectName, projects, loadProject, currentProject?.id]);
 
-  // ২. কারেন্ট প্রোজেক্টের ফাইলগুলো এডিটর স্টেটে বসানো
-  useEffect(() => {
-    if (currentProject?.files && currentProject.files.length > 0) {
-      setFiles(currentProject.files);
-      
-      // প্রথমবার ফাইল লোড হলে README অটো ওপেন করা
-      if (openTabs.length === 0) {
-        const readme = currentProject.files.find(f => f.name.toLowerCase().includes('readme')) || currentProject.files[0];
-        if (readme && readme.type === 'file') {
-          setOpenTabs([{ id: readme.id, name: readme.name, language: getLanguage(readme.extension) }]);
-          setActiveTabId(readme.id);
-        }
-      }
+    if (projects.length > 0) {
+      initWorkspace();
     }
-  }, [currentProject]);
+  }, [projectName, projects.length]); // শুধু প্রথমবার লোড হবে
 
-  // ৩. ফিক্সড অটো-সেভ লজিক (৩ সেকেন্ড ডিবউন্স)
+  // ২. অটো-সেভ লজিক (৩ সেকেন্ড গ্যাপ - র‍্যাম বাঁচানোর জন্য)
   useEffect(() => {
     if (isSyncing || !currentProject?.id || files.length === 0) return;
 
-    const saveToDB = async () => {
+    const autoSave = async () => {
       setSaveStatus('saving');
       const { error } = await supabase
         .from('projects')
-        .update({ 
-          files: files as any, 
-          updated_at: new Date().toISOString() 
-        })
+        .update({ files: files as any, updated_at: new Date().toISOString() })
         .eq('id', currentProject.id);
 
-      if (error) {
-        console.error("Auto-save error:", error);
-        setSaveStatus('error');
-      } else {
+      if (!error) {
         updateProjectFiles(currentProject.id, files);
         setSaveStatus('saved');
+      } else {
+        setSaveStatus('error');
       }
     };
 
-    const timer = setTimeout(saveToDB, 3000); // র‍্যামের ওপর প্রেশার কমাতে ৩ সেকেন্ড দেওয়া
+    const timer = setTimeout(autoSave, 3000); //
     return () => clearTimeout(timer);
   }, [files, currentProject?.id, isSyncing]);
 
-  // ৪. ফাইল কন্টেন্ট আপডেট (Optimize for 4GB RAM)
-  const updateFileContent = useCallback((fileId: string, content: string) => {
-    setFiles(prev => {
-      const updateNode = (nodes: FileItem[]): FileItem[] => {
-        return nodes.map(node => {
-          if (node.id === fileId) return { ...node, content };
-          if (node.children) return { ...node, children: updateNode(node.children) };
-          return node;
-        });
-      };
-      return updateNode(prev);
-    });
-  }, []);
-
-  // ৫. একটিভ ফাইল খোঁজা (Recursive)
-  const activeFile = useMemo(() => {
-    const findFile = (items: FileItem[]): FileItem | null => {
-      for (const item of items) {
-        if (item.id === activeTabId) return item;
-        if (item.children) {
-          const res = findFile(item.children);
-          if (res) return res;
-        }
-      }
-      return null;
-    };
-    return findFile(files);
-  }, [files, activeTabId]);
-
-  // লোডিং স্ক্রিন
-  if (isSyncing && !currentProject) {
+  // ৩. রিফ্রেশ দিলে যাতে "Not Found" না আসে তার জন্য সেফটি চেক
+  if (isSyncing) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a] text-white">
-        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-        <p className="text-lg font-medium animate-pulse">আপনার প্রোজেক্ট ফাইলগুলো সাজানো হচ্ছে...</p>
-        <p className="text-xs text-white/40 mt-2">বগুড়া থেকে ডাটা লোড হতে একটু সময় লাগতিছে</p>
+      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-white/60 animate-pulse font-bogura">হামাগো বগুড়ার সার্ভার থ্যাকা ফাইলগুলা লিয়াসছি, একনা দাঁড়ান...</p>
       </div>
     );
   }
