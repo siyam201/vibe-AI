@@ -117,19 +117,15 @@ const Index = () => {
     if (nav === 'account') setView('account');
   };
 
-  const handleOpenApp = (appId: string, appName: string) => {
-    setProjectName(appName);
-    setView('editor');
-    setActiveNav('apps');
-  };
-
-  if (loading) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-background">
-        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+ const handleOpenApp = (appId: string, appName: string) => {
+  setProjectName(appName);
+  setView('editor');
+  setActiveNav('apps');
+  
+  // প্রজেক্ট ওপেন করার সময়ও ইউআরএল পরিবর্তন
+  const randomId = Math.floor(1000 + Math.random() * 9000);
+  navigate(`/pro/${appName}-${randomId}`);
+};
 
   const userName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
 
