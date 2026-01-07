@@ -14,7 +14,7 @@ import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
 
-// সিয়াম ভাই, এই লাইনটিই ভার্সেল বিল্ড এরর ঠিক করবে
+// সিয়াম ভাই, আপনার স্ক্রিনশট ২৫১ অনুযায়ী এই পাথটি একদম সঠিক:
 import { supabase } from '@/integrations/supabase/client'; 
 
 interface IDEWorkspaceProps {
@@ -40,39 +40,46 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
-  // সব ফাইল এবং ফোল্ডারকে একসাথ করে সুপাবেজে পাঠানোর ফাংশন
+  // সিয়াম ভাই, এই ফাংশনটি আপনার ১৭-১৮টি ফাইল ফোল্ডারসহ JSON আকারে ডাটাবেসে পাঠাবে
   const saveToSupabase = useCallback(async (currentFiles: FileItem[]) => {
     if (!projectName) return;
     setIsSaving(true);
     try {
       const fileMap: Record<string, string> = {};
+      
+      // রিকার্সিভলি ফোল্ডার স্ট্রাকচার বের করা (স্ক্রিনশট ২৫২ এর ফোল্ডারগুলোর জন্য)
       const extract = (items: FileItem[], path = '') => {
         items.forEach(item => {
           const fullPath = path ? `${path}/${item.name}` : item.name;
-          if (item.type === 'file') fileMap[fullPath] = item.content || '';
-          if (item.children) extract(item.children, fullPath);
+          if (item.type === 'file') {
+            fileMap[fullPath] = item.content || '';
+          } else if (item.children) {
+            extract(item.children, fullPath);
+          }
         });
       };
       extract(currentFiles);
 
+      // সুপাবেজে UPSERT - স্ক্রিনশট ২৪৯ এর কলাম 'files' এ ডাটা যাবে
       const { error } = await supabase
         .from('app_previews')
         .upsert({ 
           app_name: projectName,
-          files: fileMap, // সব ১৭-১৮টি ফাইল এখানে যাবে
+          files: fileMap, 
           html_content: fileMap['index.html'] || '',
           updated_at: new Date().toISOString()
         }, { onConflict: 'app_name' });
 
       if (error) throw error;
-      console.log("Database Sync Done!");
+      console.log("সব ফাইল সাকসেসফুলি সেভ হয়েছে!");
     } catch (err) {
-      console.error("Sync Error:", err);
+      console.error("সুপাবেজ সেভ এরর:", err);
     } finally {
       setIsSaving(false);
     }
   }, [projectName]);
 
+  // ৪জিবি র‍্যামের জন্য ৩ সেকেন্ড ডিলে (Auto-save)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (currentProject) {
@@ -83,6 +90,21 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     return () => clearTimeout(timer);
   }, [files, currentProject, updateProjectFiles, saveToSupabase]);
 
+  // এডিটর আপডেট লজিক
+  const updateFileContent = (fileId: string, content: string) => {
+    const updateRecursive = (items: FileItem[]): FileItem[] => items.map(i => 
+      i.id === fileId ? { ...i, content } : (i.children ? { ...i, children: updateRecursive(i.children) } : i)
+    );
+    setFiles(prev => updateRecursive(prev));
+  };
+
+  const preview = {
+    html: files.find(f => f.name === 'index.html')?.content || '',
+    css: '', // আপনি চাইলে একইভাবে css ফাইল খুঁজে এখানে দিতে পারেন
+    js: '',
+    fileMap: {}
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0f0f1a] text-white">
       <div className="h-12 flex items-center justify-between px-4 border-b border-white/10 bg-[#16162a]">
@@ -90,11 +112,11 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           <Button variant="ghost" size="icon" onClick={() => setShowSidebar(!showSidebar)}>
             {showSidebar ? <PanelLeftClose /> : <PanelLeftOpen />}
           </Button>
-          <span className="font-bold">{projectName}</span>
+          <span className="font-bold text-sm">{projectName}</span>
           {isSaving && <span className="text-[10px] text-green-400 animate-pulse ml-2">● DB Saving...</span>}
         </div>
-        <Button onClick={onPublish} size="sm" className="bg-green-600 hover:bg-green-700 gap-2">
-          <Play className="w-4 h-4" /> Run
+        <Button onClick={onPublish} size="sm" className="bg-green-600 hover:bg-green-700 h-8">
+          <Play className="w-3.5 h-3.5 mr-1" /> Run
         </Button>
       </div>
 
@@ -112,25 +134,28 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             />
           </div>
         )}
+        
         <div className="flex-1 flex flex-col">
           <EditorTabs tabs={openTabs} activeTabId={activeTabId} onTabSelect={setActiveTabId} onTabClose={(id) => setOpenTabs(openTabs.filter(t => t.id !== id))} />
           <div className="flex-1">
              <CodeEditor 
                 code={files.find(f => f.id === activeTabId)?.content || ''} 
-                onChange={(v) => {
-                  const update = (items: FileItem[]): FileItem[] => items.map(i => i.id === activeTabId ? { ...i, content: v || '' } : (i.children ? { ...i, children: update(i.children) } : i));
-                  setFiles(prev => update(prev));
-                }} 
+                onChange={(v) => updateFileContent(activeTabId, v || '')} 
                 language={getLanguage(files.find(f => f.id === activeTabId)?.extension)} 
              />
           </div>
         </div>
+
         <div className="w-[400px] border-l border-white/10 bg-[#16162a]">
           <div className="flex border-b border-white/10">
-            <button className={cn("flex-1 p-2 text-xs", rightPanel === 'chat' && "bg-white/10")} onClick={() => setRightPanel('chat')}>Chat</button>
+            <button className={cn("flex-1 p-2 text-xs", rightPanel === 'chat' && "bg-white/10")} onClick={() => setRightPanel('chat')}>AI Chat</button>
             <button className={cn("flex-1 p-2 text-xs", rightPanel === 'preview' && "bg-white/10")} onClick={() => setRightPanel('preview')}>Preview</button>
           </div>
-          {rightPanel === 'chat' ? <UnifiedAIChatPanel onFileOperations={executeOperations} /> : <PreviewPanel html={""} css={""} js={""} files={{}} projectName={projectName} />}
+          {rightPanel === 'chat' ? (
+            <UnifiedAIChatPanel onFileOperations={executeOperations} />
+          ) : (
+            <PreviewPanel {...preview} files={{}} projectName={projectName} />
+          )}
         </div>
       </div>
     </div>
