@@ -24,21 +24,22 @@ export type ProjectHistoryItem = Project;
 // Default files for new projects (Node.js style like Replit)
 export const getDefaultFiles = (): FileItem[] => [
   {
-    id: 'index-js',
-    name: 'index.js',
+    id: 'index-html',
+    name: 'index.html',
     type: 'file',
-    extension: 'js',
-    content: `const express = require('express');
-const app = express();
-const port = 3000;
-
-app.get('/', (req, res) => {
-  res.send('Hello World!');
-});
-
-app.listen(port, () => {
-  console.log(\`Server running at http://localhost:\${port}\`);
-});`,
+    extension: 'html',
+    content: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VibeCode Project</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`,
   },
   {
     id: 'package-json',
@@ -46,107 +47,160 @@ app.listen(port, () => {
     type: 'file',
     extension: 'json',
     content: `{
-  "name": "my-app",
+  "name": "vibecode-app",
+  "private": true,
   "version": "1.0.0",
-  "description": "A Node.js project",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "zustand": "^4.5.0",
+    "lucide-react": "^0.320.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.3",
+    "typescript": "^5.0.2",
+    "vite": "^4.4.5",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1"
   }
 }`,
   },
   {
-    id: 'gitignore',
-    name: '.gitignore',
+    id: 'vite-config',
+    name: 'vite.config.ts',
     type: 'file',
-    extension: 'gitignore',
-    content: `node_modules/
-.env
-.DS_Store
-*.log
-dist/
-.cache/`,
+    extension: 'ts',
+    content: `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+});`,
   },
   {
-    id: 'replit',
-    name: '.replit',
-    type: 'file',
-    extension: 'replit',
-    content: `run = "npm start"
-entrypoint = "index.js"
-
-[nix]
-channel = "stable-23_05"
-
-[deployment]
-run = ["sh", "-c", "npm start"]`,
-  },
-  {
-    id: 'packager-files',
-    name: 'Packager files',
+    id: 'src-folder',
+    name: 'src',
     type: 'folder',
     children: [
       {
-        id: 'package-lock-json',
-        name: 'package-lock.json',
+        id: 'main-tsx',
+        name: 'main.tsx',
         type: 'file',
-        extension: 'json',
-        content: `{
-  "name": "my-app",
-  "version": "1.0.0",
-  "lockfileVersion": 3,
-  "requires": true,
-  "packages": {}
+        extension: 'tsx',
+        content: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+import './styles/index.css';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);`,
+      },
+      {
+        id: 'app-tsx',
+        name: 'App.tsx',
+        type: 'file',
+        extension: 'tsx',
+        content: `import { Routes, Route } from 'react-router-dom';
+
+function App() {
+  return (
+    <div className="app-container">
+      <h1>VibeCode + Vite + Supabase</h1>
+      <p>আপনার প্রজেক্ট সফলভাবে সেটআপ হয়েছে।</p>
+    </div>
+  );
+}
+
+export default App;`,
+      },
+      {
+        id: 'lib-folder',
+        name: 'lib',
+        type: 'folder',
+        children: [
+          {
+            id: 'supabase-ts',
+            name: 'supabase.ts',
+            type: 'file',
+            extension: 'ts',
+            content: `import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);`,
+          }
+        ]
+      },
+      {
+        id: 'styles-folder',
+        name: 'styles',
+        type: 'folder',
+        children: [
+          {
+            id: 'index-css',
+            name: 'index.css',
+            type: 'file',
+            extension: 'css',
+            content: `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { font-family: Inter, system-ui, sans-serif; }`,
+          }
+        ]
+      },
+      {
+        id: 'vite-env-d-ts',
+        name: 'vite-env.d.ts',
+        type: 'file',
+        extension: 'ts',
+        content: `/// <reference types="vite/client" />`,
+      }
+    ],
+  },
+  {
+    id: 'tsconfig-json',
+    name: 'tsconfig.json',
+    type: 'file',
+    extension: 'json',
+    content: `{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": false,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
 }`,
-      },
-    ],
-  },
-  {
-    id: 'config-files',
-    name: 'Config files',
-    type: 'folder',
-    children: [
-      {
-        id: 'env-example',
-        name: '.env.example',
-        type: 'file',
-        extension: 'env',
-        content: `# Environment Variables
-PORT=3000
-DATABASE_URL=
-API_KEY=`,
-      },
-    ],
-  },
-  {
-    id: 'readme',
-    name: 'README.md',
-    type: 'file',
-    extension: 'md',
-    content: `# My App
-
-A Node.js project created with VibeCode.
-
-## Getting Started
-
-\`\`\`bash
-npm install
-npm start
-\`\`\`
-
-## Development
-
-\`\`\`bash
-npm run dev
-\`\`\``,
-  },
+  }
 ];
 
 export const useProjectHistory = () => {
