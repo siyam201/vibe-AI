@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 // একদম সঠিক পাথ হবে এইটা (আপনার ফোল্ডার স্ট্রাকচার অনুযায়ী):
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '../integrations/supabase/client';
 
 // --- Types ---
 export interface FileItem {
