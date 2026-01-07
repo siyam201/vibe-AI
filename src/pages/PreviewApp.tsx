@@ -70,39 +70,68 @@ const PreviewApp = () => {
   };
 
  const handleDeployToVercel = async () => {
-  // ... (বাকি কোড ঠিক আছে)
-  try {
-    const filesToDeploy = { ...projectFiles };
-    
-    // যদি index.html না থাকে তবে previewCode থেকে নিয়ে নিন
-    if (!filesToDeploy['index.html'] && previewCode) {
-      filesToDeploy['index.html'] = previewCode;
+    if (!appName) {
+      toast.error('No app name specified');
+      return;
     }
 
-    // Invoke the function
-    const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-      body: {
-        appName: appName,
-        files: filesToDeploy, // এখানে আমরা অবজেক্ট পাঠাচ্ছি { 'index.html': '...' }
-      }
-    });
+    const hasFiles = Object.keys(projectFiles).length > 0;
+    const hasHtml = !!previewCode;
 
-    if (error) throw error;
-    // ... (সফল হওয়ার মেসেজ)
-  } catch (err) {
-    // ... (এরর হ্যান্ডলিং)
-  }
-};
+    if (!hasFiles && !hasHtml) {
+      toast.error('No content to deploy');
+      return;
+    }
 
     setIsDeploying(true);
     try {
-      // Prepare files for deployment
-      const filesToDeploy: FileMap = { ...projectFiles };
+      // ১. ফাইলগুলো পাঠানোর আগে সঠিকভাবে ম্যাপ করে নেওয়া (Path Fix)
+      const filesToDeploy: FileMap = {};
       
-      // If we only have html_content, ensure it's in the files
+      Object.entries(projectFiles).forEach(([path, content]) => {
+        // পাথের শুরুতে স্লাশ থাকলে তা বাদ দেওয়া (Vercel requirements)
+        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+        filesToDeploy[cleanPath] = content;
+      });
+
+      // ২. যদি index.html না থাকে তবে previewCode থেকে নিয়ে ফাইল হিসেবে অ্যাড করা
       if (!filesToDeploy['index.html'] && previewCode) {
         filesToDeploy['index.html'] = previewCode;
       }
+
+      // ৩. Supabase Function Invoke (এখানেই ফাইল পাঠানো হচ্ছে)
+      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+        body: {
+          appName: appName,
+          files: filesToDeploy, // সঠিক অবজেক্ট ফরম্যাট
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.success && data?.url) {
+        setDeployedUrl(data.url);
+        toast.success(`Deployed successfully!`, {
+          description: data.url,
+          action: {
+            label: 'Open',
+            onClick: () => window.open(data.url, '_blank')
+          }
+        });
+      } else {
+        throw new Error(data?.error || 'Deployment failed');
+      }
+    } catch (err: any) {
+      console.error('Vercel deployment error:', err);
+      toast.error('Deployment failed', {
+        description: err.message || 'Please try again'
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+   
 
       const { data, error } = await supabase.functions.invoke('vercel-deploy', {
         body: {
