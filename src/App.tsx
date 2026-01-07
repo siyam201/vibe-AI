@@ -26,6 +26,7 @@ const App = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/preview/apps/:appName" element={<PreviewApp />} />
           <Route path="/sandbox" element={<SandboxTest />} />
+          <Route path="/pro/:projectId" element={<Index />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
