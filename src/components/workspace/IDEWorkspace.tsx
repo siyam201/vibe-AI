@@ -273,66 +273,6 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
              </div>
           </footer>
         </section>
-
-        {/* --- RIGHT PANEL: AI Copilot --- */}
-        <aside className="w-[420px] flex flex-col bg-[#0d0d14] border-l border-white/[0.05] shadow-2xl">
-          {rightPanel === 'chat' ? (
-            <div className="flex flex-col h-full">
-              {/* AI Tab Header */}
-              <div className="p-4 bg-gradient-to-b from-indigo-500/[0.03] to-transparent border-b border-white/[0.03]">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-indigo-500/10">
-                      <Sparkles className="w-4 h-4 text-indigo-400" />
-                    </div>
-                    <span className="text-[12px] font-black text-slate-200 uppercase tracking-wider">AI Copilot</span>
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500"><Settings className="w-4 h-4" /></Button>
-                </div>
-                
-                {/* AI Sub-tabs */}
-                <div className="flex p-1 bg-black/40 rounded-xl border border-white/[0.05]">
-                  {['chat', 'plan', 'test'].map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setAiTab(tab as any)}
-                      className={cn(
-                        "flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all uppercase tracking-widest",
-                        aiTab === tab ? "bg-[#1a1a2e] text-indigo-400 shadow-sm" : "text-slate-500 hover:text-slate-300"
-                      )}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Copilot Action Buttons (Sticky) */}
-              <div className="grid grid-cols-2 gap-2 p-3 bg-[#0d0d14]">
-                <Button variant="outline" size="sm" className="h-10 bg-white/[0.02] border-white/[0.05] hover:border-indigo-500/40 hover:bg-indigo-500/5 text-[11px] gap-2 rounded-xl group transition-all">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 group-hover:scale-110" /> Generate Tests
-                </Button>
-                <Button variant="outline" size="sm" className="h-10 bg-white/[0.02] border-white/[0.05] hover:border-rose-500/40 hover:bg-rose-500/5 text-[11px] gap-2 rounded-xl group transition-all">
-                  <Bug className="w-3.5 h-3.5 text-rose-500 group-hover:scale-110" /> Fix Issues
-                </Button>
-              </div>
-
-              {/* AI Content Area */}
-              <div className="flex-1 overflow-hidden relative">
-                <UnifiedAIChatPanel 
-                  onFileOperations={executeOperations} 
-                  currentFiles={Object.entries(previewData.fileMap).map(([path, content]) => ({ path, content }))} 
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col h-full bg-[#0a0a0f]">
-               <div className="p-3 border-b border-white/[0.05] flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-400">LIVE PREVIEW</span>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="w-3.5 h-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => window.open('', '_blank')}><Eye className="w-3.5 h-3.5" /></Button>
-                  </div>
                </div>
                <PreviewPanel 
                   html={previewData.html} 
