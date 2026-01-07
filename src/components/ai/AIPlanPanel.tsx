@@ -393,18 +393,26 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
                   <div className="flex items-center gap-2 mb-3">
                     <Package className="w-4 h-4 text-purple-400" />
                     <span className="text-xs font-bold uppercase tracking-wider">Tech Stack</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(plan.techStack).map(([cat, items]) => items.length > 0 && (
-                      <div key={cat} className="space-y-1">
-                        <span className="text-[9px] text-slate-500 uppercase">{cat}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {items.map(i => <span key={i} className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-300">{i}</span>)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                 <div className="grid grid-cols-2 gap-3">
+  {plan?.techStack && Object.entries(plan.techStack).map(([cat, items]) => (
+    // নিশ্চিত হওয়া যে items একটি Array এবং তা খালি নয়
+    Array.isArray(items) && items.length > 0 && (
+      <div key={cat} className="space-y-1">
+        <span className="text-[9px] text-slate-500 uppercase">{cat}</span>
+        <div className="flex flex-wrap gap-1">
+          {items.map(i => (
+            <span 
+              key={`${cat}-${i}`} // কী (key) আরও ইউনিক করা হলো
+              className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-300"
+            >
+              {i}
+            </span>
+          ))}
+        </div>
+      </div>
+    )
+  ))}
+</div>
               )}
 
               {/* Execution Actions */}
