@@ -1,7 +1,10 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  PanelLeftClose, PanelLeftOpen, Play, Package, Save, FolderOpen, 
-  Code2, Eye, GitBranch, History, Terminal
+  PanelLeftClose, PanelLeftOpen, Play, Settings, History,
+  Terminal, Eye, Code2, Package, Save, FolderOpen, 
+  GitBranch, Sparkles, Layout, CheckCircle2, Bug,
+  ChevronRight, Search, Plus, Download, Share2,
+  MoreHorizontal, Command, Cpu, Cloud
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -13,10 +16,9 @@ import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
-// সিয়াম ভাই, আপনার স্ক্রিনশট ২৫১ অনুযায়ী এই পাথটি একদম সঠিক:
-import { supabase } from '@/integrations/supabase/client'; 
-
+// --- Types ---
 interface IDEWorkspaceProps {
   projectName: string;
   onPublish: () => void;
@@ -24,139 +26,333 @@ interface IDEWorkspaceProps {
   initialMode?: 'chat' | 'plan' | 'test';
 }
 
-const getLanguage = (ext?: string) => {
-  const map: Record<string, string> = { js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', html: 'html', css: 'css', json: 'json', md: 'markdown' };
-  return map[ext || ''] || 'plaintext';
-};
-
-export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
+export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMode }: IDEWorkspaceProps) => {
+  // --- States ---
   const { currentProject, updateProjectFiles } = useProjectHistory();
   const [files, setFiles] = useState<FileItem[]>(currentProject?.files || getDefaultFiles());
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([{ id: 'index-html', name: 'index.html', language: 'html' }]);
   const [activeTabId, setActiveTabId] = useState('index-html');
   const [showSidebar, setShowSidebar] = useState(true);
-  const [rightPanel, setRightPanel] = useState<'chat' | 'preview' | 'git'>('chat');
+  const [rightPanel, setRightPanel] = useState<'chat' | 'preview'>('chat');
   const [isSaving, setIsSaving] = useState(false);
-
+  const [aiTab, setAiTab] = useState<'chat' | 'plan' | 'test'>('chat');
+  
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
-  // সিয়াম ভাই, এই ফাংশনটি আপনার ১৭-১৮টি ফাইল ফোল্ডারসহ JSON আকারে ডাটাবেসে পাঠাবে
-  const saveToSupabase = useCallback(async (currentFiles: FileItem[]) => {
-    if (!projectName) return;
-    setIsSaving(true);
+  // --- Utility: Get Language ---
+  const getLanguage = (ext?: string) => {
+    const map: Record<string, string> = { 
+      js: 'javascript', ts: 'typescript', jsx: 'javascript', 
+      tsx: 'typescript', html: 'html', css: 'css', json: 'json', md: 'markdown' 
+    };
+    return map[ext || ''] || 'plaintext';
+  };
+
+  // --- Bulk Sync to Supabase ---
+  const syncToSupabase = useCallback(async (currentFiles: FileItem[], silent = true) => {
+    const targetName = currentProject?.name || projectName;
+    if (!targetName) return;
+
+    if (!silent) setIsSaving(true);
+    
     try {
       const fileMap: Record<string, string> = {};
-      
-      // রিকার্সিভলি ফোল্ডার স্ট্রাকচার বের করা (স্ক্রিনশট ২৫২ এর ফোল্ডারগুলোর জন্য)
-      const extract = (items: FileItem[], path = '') => {
+      const extract = (items: FileItem[]) => {
         items.forEach(item => {
-          const fullPath = path ? `${path}/${item.name}` : item.name;
-          if (item.type === 'file') {
-            fileMap[fullPath] = item.content || '';
-          } else if (item.children) {
-            extract(item.children, fullPath);
-          }
+          if (item.type === 'file') fileMap[item.name] = item.content || '';
+          if (item.children) extract(item.children);
         });
       };
       extract(currentFiles);
 
-      // সুপাবেজে UPSERT - স্ক্রিনশট ২৪৯ এর কলাম 'files' এ ডাটা যাবে
-      const { error } = await supabase
-        .from('app_previews')
-        .upsert({ 
-          app_name: projectName,
-          files: fileMap, 
-          html_content: fileMap['index.html'] || '',
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'app_name' });
+      const { error } = await supabase.from('app_previews').upsert({ 
+        app_name: targetName,
+        files: fileMap, // বাল্ক ফাইল অবজেক্ট
+        html_content: fileMap['index.html'] || '',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'app_name' });
 
       if (error) throw error;
-      console.log("সব ফাইল সাকসেসফুলি সেভ হয়েছে!");
+      if (!silent) console.log("Manual Sync Success");
     } catch (err) {
-      console.error("সুপাবেজ সেভ এরর:", err);
+      console.error("Supabase Sync Failed:", err);
+      if (!silent) toast.error("ডাটাবেসে সেভ হতে সমস্যা হয়েছে!");
     } finally {
-      setIsSaving(false);
+      if (!silent) setIsSaving(false);
     }
-  }, [projectName]);
+  }, [currentProject, projectName]);
 
-  // ৪জিবি র‍্যামের জন্য ৩ সেকেন্ড ডিলে (Auto-save)
+  // --- Auto-save effect ---
   useEffect(() => {
     const timer = setTimeout(() => {
       if (currentProject) {
         updateProjectFiles(currentProject.id, files);
-        saveToSupabase(files);
+        syncToSupabase(files, true);
       }
-    }, 3000);
+    }, 4000); // ৪জিবি র‍্যামের জন্য ৪ সেকেন্ড ডিলে
     return () => clearTimeout(timer);
-  }, [files, currentProject, updateProjectFiles, saveToSupabase]);
+  }, [files, currentProject, updateProjectFiles, syncToSupabase]);
 
-  // এডিটর আপডেট লজিক
-  const updateFileContent = (fileId: string, content: string) => {
-    const updateRecursive = (items: FileItem[]): FileItem[] => items.map(i => 
-      i.id === fileId ? { ...i, content } : (i.children ? { ...i, children: updateRecursive(i.children) } : i)
+  // --- Deploy Logic ---
+  const handleDeploy = async () => {
+    setIsSaving(true);
+    const toastId = toast.loading("ফাইলগুলো সংগ্রহ করে পাবলিশ করা হচ্ছে...");
+    
+    try {
+      await syncToSupabase(files, false);
+      toast.dismiss(toastId);
+      toast.success("পাবলিশ সফল! প্রজেক্ট লাইভ হচ্ছে।", { icon: '🚀' });
+      onPublish();
+    } catch (e) {
+      toast.dismiss(toastId);
+      toast.error("পাবলিশ ব্যর্থ হয়েছে।");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // --- File Actions ---
+  const updateFileContent = (id: string, content: string) => {
+    const update = (items: FileItem[]): FileItem[] => items.map(i => 
+      i.id === id ? { ...i, content } : (i.children ? { ...i, children: update(i.children) } : i)
     );
-    setFiles(prev => updateRecursive(prev));
+    setFiles(prev => update(prev));
   };
 
-  const preview = {
-    html: files.find(f => f.name === 'index.html')?.content || '',
-    css: '', // আপনি চাইলে একইভাবে css ফাইল খুঁজে এখানে দিতে পারেন
-    js: '',
-    fileMap: {}
+  const activeFile = files.find(f => f.id === activeTabId);
+
+  // --- Preview Data Preparation ---
+  const getPreviewCode = () => {
+    const fileMap: Record<string, string> = {};
+    const css: string[] = [], js: string[] = [];
+    const collect = (items: FileItem[]) => items.forEach(i => {
+      if (i.type === 'file') {
+        fileMap[i.name] = i.content || '';
+        if (i.extension === 'css') css.push(i.content || '');
+        if (i.extension === 'js') js.push(i.content || '');
+      }
+      if (i.children) collect(i.children);
+    });
+    collect(files);
+    return { html: fileMap['index.html'] || '', css: css.join('\n'), js: js.join('\n'), fileMap };
   };
+
+  const previewData = getPreviewCode();
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0f0f1a] text-white">
-      <div className="h-12 flex items-center justify-between px-4 border-b border-white/10 bg-[#16162a]">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setShowSidebar(!showSidebar)}>
-            {showSidebar ? <PanelLeftClose /> : <PanelLeftOpen />}
-          </Button>
-          <span className="font-bold text-sm">{projectName}</span>
-          {isSaving && <span className="text-[10px] text-green-400 animate-pulse ml-2">● DB Saving...</span>}
+    <div className="flex flex-col h-screen bg-[#050508] text-slate-300 font-sans selection:bg-indigo-500/30 overflow-hidden">
+      
+      {/* --- TOP HEADER (Modern & Minimal) --- */}
+      <header className="h-14 flex items-center justify-between px-4 border-b border-white/[0.04] bg-[#0d0d14]/90 backdrop-blur-xl z-50">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Cpu className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[13px] font-bold text-slate-100 tracking-tight leading-none">
+                {currentProject?.name || projectName}
+              </span>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={cn("w-1.5 h-1.5 rounded-full", isSaving ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
+                <span className="text-[10px] text-slate-500 font-medium uppercase tracking-widest">
+                  {isSaving ? 'Syncing...' : 'Saved to Cloud'}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-        <Button onClick={onPublish} size="sm" className="bg-green-600 hover:bg-green-700 h-8">
-          <Play className="w-3.5 h-3.5 mr-1" /> Run
-        </Button>
-      </div>
 
-      <div className="flex-1 flex overflow-hidden">
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-1 mr-4 bg-white/[0.03] p-1 rounded-full border border-white/[0.05]">
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] rounded-full hover:bg-white/5"><History className="w-3.5 h-3.5 mr-1.5" /> History</Button>
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] rounded-full hover:bg-white/5"><Share2 className="w-3.5 h-3.5 mr-1.5" /> Share</Button>
+          </div>
+          
+          <Button 
+            onClick={handleDeploy}
+            disabled={isSaving}
+            className="h-9 px-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full font-bold text-xs gap-2 shadow-lg shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50"
+          >
+            <Cloud className={cn("w-3.5 h-3.5", isSaving && "animate-bounce")} />
+            Deploy Project
+          </Button>
+        </div>
+      </header>
+
+      <main className="flex-1 flex overflow-hidden">
+        {/* --- LEFT SIDEBAR: File Explorer --- */}
         {showSidebar && (
-          <div className="w-60 border-r border-white/10 bg-[#1a1a2e]">
-            <FileExplorer 
-              files={files} 
-              onFileSelect={(f) => {
-                if (f.type === 'file') {
-                  if (!openTabs.find(t => t.id === f.id)) setOpenTabs([...openTabs, { id: f.id, name: f.name, language: getLanguage(f.extension) }]);
-                  setActiveTabId(f.id);
-                }
-              }} 
+          <aside className="w-64 flex flex-col border-r border-white/[0.05] bg-[#08080c]">
+            <div className="p-4 flex items-center justify-between border-b border-white/[0.03]">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-slate-500" />
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Explorer</span>
+              </div>
+              <div className="flex gap-0.5">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-white"><Plus className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-white"><Search className="w-3.5 h-3.5" /></Button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar pt-2 px-2">
+              <FileExplorer 
+                files={files} 
+                activeFileId={activeTabId} 
+                onFileSelect={(f) => {
+                  if (f.type === 'file') {
+                    if (!openTabs.find(t => t.id === f.id)) {
+                      setOpenTabs([...openTabs, { id: f.id, name: f.name, language: getLanguage(f.extension) }]);
+                    }
+                    setActiveTabId(f.id);
+                  }
+                }} 
+              />
+            </div>
+
+            <div className="p-3 border-t border-white/[0.03] bg-black/20">
+              <div className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-white/5 cursor-pointer group">
+                <GitBranch className="w-4 h-4 text-slate-600 group-hover:text-indigo-400" />
+                <span className="text-[11px] font-medium text-slate-500 group-hover:text-slate-300">main branch</span>
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {/* --- CENTER: Editor Section --- */}
+        <section className="flex-1 flex flex-col min-w-0 bg-[#0a0a0f]">
+          {/* Tab Bar */}
+          <div className="flex items-center bg-[#08080c] px-2 h-11 border-b border-white/[0.05]">
+            <div className="flex-1 overflow-x-auto no-scrollbar">
+              <EditorTabs 
+                tabs={openTabs} 
+                activeTabId={activeTabId} 
+                onTabSelect={setActiveTabId} 
+                onTabClose={(id) => setOpenTabs(openTabs.filter(t => t.id !== id))} 
+              />
+            </div>
+            <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setRightPanel('chat')}
+                className={cn("h-7 px-3 rounded-md text-[11px] font-bold transition-all", rightPanel === 'chat' ? "bg-indigo-500/10 text-indigo-400" : "text-slate-500")}
+              >
+                EDITOR
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setRightPanel('preview')}
+                className={cn("h-7 px-3 rounded-md text-[11px] font-bold transition-all", rightPanel === 'preview' ? "bg-indigo-500/10 text-indigo-400" : "text-slate-500")}
+              >
+                PREVIEW
+              </Button>
+            </div>
+          </div>
+
+          {/* Editor Body */}
+          <div className="flex-1 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent" />
+            <CodeEditor 
+              code={activeFile?.content || ''} 
+              language={getLanguage(activeFile?.extension)}
+              onChange={(v) => updateFileContent(activeTabId, v || '')}
             />
           </div>
-        )}
-        
-        <div className="flex-1 flex flex-col">
-          <EditorTabs tabs={openTabs} activeTabId={activeTabId} onTabSelect={setActiveTabId} onTabClose={(id) => setOpenTabs(openTabs.filter(t => t.id !== id))} />
-          <div className="flex-1">
-             <CodeEditor 
-                code={files.find(f => f.id === activeTabId)?.content || ''} 
-                onChange={(v) => updateFileContent(activeTabId, v || '')} 
-                language={getLanguage(files.find(f => f.id === activeTabId)?.extension)} 
-             />
-          </div>
-        </div>
 
-        <div className="w-[400px] border-l border-white/10 bg-[#16162a]">
-          <div className="flex border-b border-white/10">
-            <button className={cn("flex-1 p-2 text-xs", rightPanel === 'chat' && "bg-white/10")} onClick={() => setRightPanel('chat')}>AI Chat</button>
-            <button className={cn("flex-1 p-2 text-xs", rightPanel === 'preview' && "bg-white/10")} onClick={() => setRightPanel('preview')}>Preview</button>
-          </div>
+          {/* Status Bar */}
+          <footer className="h-7 bg-[#0d0d14] border-t border-white/[0.05] flex items-center justify-between px-3 text-[10px] font-medium text-slate-500">
+             <div className="flex gap-4">
+                <span className="flex items-center gap-1.5"><Terminal className="w-3 h-3" /> UTF-8</span>
+                <span className="flex items-center gap-1.5"><Code2 className="w-3 h-3" /> {getLanguage(activeFile?.extension).toUpperCase()}</span>
+             </div>
+             <div className="flex gap-4">
+                <span className="hover:text-slate-300 cursor-pointer">Ln 1, Col 1</span>
+                <span className="text-emerald-500/80">● Ready</span>
+             </div>
+          </footer>
+        </section>
+
+        {/* --- RIGHT PANEL: AI Copilot --- */}
+        <aside className="w-[420px] flex flex-col bg-[#0d0d14] border-l border-white/[0.05] shadow-2xl">
           {rightPanel === 'chat' ? (
-            <UnifiedAIChatPanel onFileOperations={executeOperations} />
+            <div className="flex flex-col h-full">
+              {/* AI Tab Header */}
+              <div className="p-4 bg-gradient-to-b from-indigo-500/[0.03] to-transparent border-b border-white/[0.03]">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-indigo-500/10">
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <span className="text-[12px] font-black text-slate-200 uppercase tracking-wider">AI Copilot</span>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500"><Settings className="w-4 h-4" /></Button>
+                </div>
+                
+                {/* AI Sub-tabs */}
+                <div className="flex p-1 bg-black/40 rounded-xl border border-white/[0.05]">
+                  {['chat', 'plan', 'test'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setAiTab(tab as any)}
+                      className={cn(
+                        "flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all uppercase tracking-widest",
+                        aiTab === tab ? "bg-[#1a1a2e] text-indigo-400 shadow-sm" : "text-slate-500 hover:text-slate-300"
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Copilot Action Buttons (Sticky) */}
+              <div className="grid grid-cols-2 gap-2 p-3 bg-[#0d0d14]">
+                <Button variant="outline" size="sm" className="h-10 bg-white/[0.02] border-white/[0.05] hover:border-indigo-500/40 hover:bg-indigo-500/5 text-[11px] gap-2 rounded-xl group transition-all">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 group-hover:scale-110" /> Generate Tests
+                </Button>
+                <Button variant="outline" size="sm" className="h-10 bg-white/[0.02] border-white/[0.05] hover:border-rose-500/40 hover:bg-rose-500/5 text-[11px] gap-2 rounded-xl group transition-all">
+                  <Bug className="w-3.5 h-3.5 text-rose-500 group-hover:scale-110" /> Fix Issues
+                </Button>
+              </div>
+
+              {/* AI Content Area */}
+              <div className="flex-1 overflow-hidden relative">
+                <UnifiedAIChatPanel 
+                  onFileOperations={executeOperations} 
+                  currentFiles={Object.entries(previewData.fileMap).map(([path, content]) => ({ path, content }))} 
+                />
+              </div>
+            </div>
           ) : (
-            <PreviewPanel {...preview} files={{}} projectName={projectName} />
+            <div className="flex flex-col h-full bg-[#0a0a0f]">
+               <div className="p-3 border-b border-white/[0.05] flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400">LIVE PREVIEW</span>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="icon" className="h-7 w-7"><Share2 className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => window.open('', '_blank')}><Eye className="w-3.5 h-3.5" /></Button>
+                  </div>
+               </div>
+               <PreviewPanel 
+                  html={previewData.html} 
+                  css={previewData.css} 
+                  js={previewData.js} 
+                  files={previewData.fileMap} 
+                  projectName={projectName} 
+                />
+            </div>
           )}
+        </aside>
+      </main>
+
+      {/* --- FLOATING COMMAND PALETTE HINT --- */}
+      <div className="fixed bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2 bg-[#16162a]/90 backdrop-blur-md border border-white/[0.1] rounded-2xl shadow-2xl z-[100] pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1.5">
+          <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300">Ctrl</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300">K</kbd>
         </div>
+        <span className="text-[11px] font-medium text-slate-400">Quick Actions</span>
       </div>
     </div>
   );
