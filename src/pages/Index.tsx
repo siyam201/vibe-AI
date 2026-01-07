@@ -71,17 +71,24 @@ const Index = () => {
   }, []);
 
   // Create app from prompt
-  const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
-    const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
-    const project = await createProject(name);
-    if (project) {
-      setProjectName(project.name);
-      setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
-      setActiveNav('apps');
-      setView('editor');
-      toast.success(`Starting "${project.name}" - sending to AI Planner...`);
-    }
-  };
+ const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
+  const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
+  const project = await createProject(name);
+  
+  if (project) {
+    setProjectName(project.name);
+    setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
+    setActiveNav('apps');
+    setView('editor');
+    
+    // র্যান্ডম আইডি জেনারেট করে ইউআরএল আপডেট করা
+    const randomId = Math.floor(1000 + Math.random() * 9000);
+    const dynamicUrl = `/pro/${project.name}-${randomId}`;
+    navigate(dynamicUrl); // এই লাইনটি ইউআরএল পরিবর্তন করবে
+    
+    toast.success(`Starting "${project.name}" - sending to AI Planner...`);
+  }
+};
 
   const handleCommandSelect = (id: string) => {
     switch (id) {
