@@ -26,7 +26,7 @@ const Index = () => {
     const saved = localStorage.getItem('sidebar-collapsed');
     return saved === 'true';
   });
-
+const { createProject, currentProject } = useProjectHistory();
   // Persist sidebar state
   const handleToggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -196,10 +196,11 @@ const Index = () => {
         onClose={() => setShowPricing(false)}
       />
       <DeployPanel
-        isOpen={showDeploy}
-        onClose={() => setShowDeploy(false)}
-        projectName={projectName}
-      />
+  isOpen={showDeploy}
+  onClose={() => setShowDeploy(false)}
+  projectName={projectName}
+  projectFiles={currentProject?.files || []} // এই লাইনটি অবশ্যই যোগ করতে হবে
+     />
     </div>
   );
 };
