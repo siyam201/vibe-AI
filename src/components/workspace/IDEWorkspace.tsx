@@ -1,18 +1,8 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  PanelLeftClose,
-  PanelLeftOpen,
-  Play,
-  Settings,
-  History,
-  Terminal,
-  Package,
-  FolderOpen,
-  Loader2,
-  Check,
-  CloudOff,
-  Code2,
-  Save
+  PanelLeftClose, PanelLeftOpen, Play, Settings, History, Terminal,
+  Package, FolderOpen, Loader2, Check, CloudOff, Code2, Save,
+  Plus, Search, Layout, Cpu, Database
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -34,73 +24,72 @@ interface IDEWorkspaceProps {
   initialMode?: 'chat' | 'plan' | 'test';
 }
 
-const getLanguage = (extension?: string) => {
+const getLanguage = (ext?: string) => {
   const map: Record<string, string> = {
     'js': 'javascript', 'ts': 'typescript', 'jsx': 'javascript', 
-    'tsx': 'typescript', 'html': 'html', 'css': 'css', 
-    'json': 'json', 'md': 'markdown'
+    'tsx': 'typescript', 'html': 'html', 'css': 'css', 'json': 'json'
   };
-  return map[extension || ''] || 'plaintext';
+  return map[ext || ''] || 'plaintext';
 };
 
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
-  const {
-    projects,
-    currentProject,
-    updateProjectFiles,
-    loadProject
-  } = useProjectHistory();
+  const { projects, currentProject, updateProjectFiles, loadProject, createProject, deleteProject, duplicateProject } = useProjectHistory();
 
+  // --- Core States ---
   const [files, setFiles] = useState<FileItem[]>([]);
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [isSyncing, setIsSyncing] = useState(true);
+  
+  // --- UI States ---
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [rightPanel, setRightPanel] = useState<'chat' | 'preview'>('chat');
+  const [showProjectHistory, setShowProjectHistory] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
-  // ১. মাউন্ট হওয়ার সাথে সাথে ডাটাবেজ থেকে ফাইলগুলো জোর করে নামিয়ে আনা
+  const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
+
+  // ১. ফিক্সড ডাটা সিঙ্ক (রিফ্রেশ দিলে যাতে ডাটা না হারায়)
   useEffect(() => {
-    const initWorkspace = async () => {
+    const syncWithDB = async () => {
       setIsSyncing(true);
-      try {
-        const decodedName = decodeURIComponent(projectName);
-        const target = projects.find(p => p.name === decodedName);
-        
-        if (target) {
-          // সুপাবেস থেকে লেটেস্ট ডাটা রি-ফেচ করা (রিফ্রেশ এরর এড়াতে)
-          const { data, error } = await supabase
-            .from('projects')
-            .select('files')
-            .eq('id', target.id)
-            .single();
+      const decodedName = decodeURIComponent(projectName);
+      const target = projects.find(p => p.name === decodedName);
+      
+      if (target) {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', target.id)
+          .single();
 
-          if (data?.files) {
-            setFiles(data.files as any);
-            // প্রথম ফাইলটি (যেমন index.html) অটো ওপেন করা
-            const firstFile = (data.files as any)[0];
-            if (firstFile && openTabs.length === 0) {
-              setOpenTabs([{ id: firstFile.id, name: firstFile.name, language: 'html' }]);
-              setActiveTabId(firstFile.id);
+        if (data?.files) {
+          const loadedFiles = data.files as unknown as FileItem[];
+          setFiles(loadedFiles);
+          
+          // অটোমেটিক প্রথম প্রয়োজনীয় ফাইলটি ওপেন করা
+          if (openTabs.length === 0 && loadedFiles.length > 0) {
+            const priorityFile = loadedFiles.find(f => f.name === 'index.html' || f.name === 'App.tsx') || loadedFiles[0];
+            if (priorityFile.type === 'file') {
+              setOpenTabs([{ id: priorityFile.id, name: priorityFile.name, language: getLanguage(priorityFile.extension) }]);
+              setActiveTabId(priorityFile.id);
             }
           }
-          await loadProject(target.id);
         }
-      } catch (err) {
-        console.error("Initialization failed:", err);
-      } finally {
-        setIsSyncing(false);
+        await loadProject(target.id);
       }
+      setIsSyncing(false);
     };
 
-    if (projects.length > 0) {
-      initWorkspace();
-    }
-  }, [projectName, projects.length]); // শুধু প্রথমবার লোড হবে
+    if (projects.length > 0) syncWithDB();
+  }, [projectName, projects.length]);
 
-  // ২. অটো-সেভ লজিক (৩ সেকেন্ড গ্যাপ - র‍্যাম বাঁচানোর জন্য)
+  // ২. র‍্যাম ফ্রেন্ডলি অটো-সেভ (৩ সেকেন্ড গ্যাপ)
   useEffect(() => {
     if (isSyncing || !currentProject?.id || files.length === 0) return;
 
-    const autoSave = async () => {
+    const performSave = async () => {
       setSaveStatus('saving');
       const { error } = await supabase
         .from('projects')
@@ -112,85 +101,120 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         setSaveStatus('saved');
       } else {
         setSaveStatus('error');
+        toast.error("সেভ করতে সমস্যা হচ্ছে!");
       }
     };
 
-    const timer = setTimeout(autoSave, 3000); //
-    return () => clearTimeout(timer);
+    const debounce = setTimeout(performSave, 3000);
+    return () => clearTimeout(debounce);
   }, [files, currentProject?.id, isSyncing]);
 
-  // ৩. রিফ্রেশ দিলে যাতে "Not Found" না আসে তার জন্য সেফটি চেক
-  if (isSyncing) {
+  // ৩. ফাইল আপডেট লজিক
+  const updateFileContent = useCallback((fileId: string, content: string) => {
+    setFiles(prev => {
+      const recursiveUpdate = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
+          if (item.id === fileId) return { ...item, content };
+          if (item.children) return { ...item, children: recursiveUpdate(item.children) };
+          return item;
+        });
+      };
+      return recursiveUpdate(prev);
+    });
+  }, []);
+
+  // ৪. একটিভ ফাইল মেমোরাইজেশন (পারফরম্যান্স বুস্ট)
+  const activeFile = useMemo(() => {
+    const find = (nodes: FileItem[]): FileItem | null => {
+      for (const node of nodes) {
+        if (node.id === activeTabId) return node;
+        if (node.children) {
+          const found = find(node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return find(files);
+  }, [files, activeTabId]);
+
+  if (isSyncing && !currentProject) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
-        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-        <p className="text-white/60 animate-pulse font-bogura">হামাগো বগুড়ার সার্ভার থ্যাকা ফাইলগুলা লিয়াসছি, একনা দাঁড়ান...</p>
+      <div className="h-full w-full flex flex-col items-center justify-center bg-[#09090b] text-white">
+        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+        <p className="text-lg font-bogura animate-pulse">বগুড়া থেকে ফাইলগুলা সাজায়া লিয়া আসতিছি...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0f0f1a] text-white">
-      {/* Header Bar */}
-      <div className="h-12 flex items-center justify-between px-4 bg-[#16162a] border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowSidebar(!showSidebar)}>
-            {showSidebar ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+    <div className="flex flex-col h-screen w-full bg-[#09090b] text-slate-300 overflow-hidden font-sans">
+      {/* Top Navigation */}
+      <header className="h-12 border-b border-white/5 bg-[#0c0c0e] flex items-center justify-between px-4">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400" onClick={() => setShowSidebar(!showSidebar)}>
+            {showSidebar ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </Button>
-          <div className="flex items-center gap-2">
-            <Package className="w-4 h-4 text-primary" />
-            <span className="font-medium text-sm truncate max-w-[120px]">{currentProject?.name || projectName}</span>
+          <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-md border border-white/10">
+            <Package size={14} className="text-blue-400" />
+            <span className="text-xs font-semibold text-white truncate max-w-[150px]">{currentProject?.name}</span>
           </div>
-          {/* সেভ ইন্ডিকেটর */}
-          <div className="ml-4 flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/10">
-             {saveStatus === 'saving' ? (
-               <><Loader2 className="w-3 h-3 animate-spin text-amber-500" /><span className="text-[9px] text-amber-500 uppercase font-bold">Saving</span></>
-             ) : (
-               <><Check className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-500 uppercase font-bold">Saved</span></>
-             )}
+          {/* Status Badge */}
+          <div className={cn(
+            "flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider",
+            saveStatus === 'saving' ? "bg-amber-500/10 text-amber-500" : "bg-emerald-500/10 text-emerald-500"
+          )}>
+            {saveStatus === 'saving' ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+            {saveStatus.toUpperCase()}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowProjectHistory(true)}>
-            <FolderOpen className="w-4 h-4 mr-2" /> Projects
+          <Button variant="ghost" size="sm" className="h-8 gap-2" onClick={() => setShowProjectHistory(true)}>
+            <History size={16} /> <span className="hidden sm:inline">History</span>
           </Button>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 text-xs" onClick={onPublish}>
-            <Play className="w-3.5 h-3.5 mr-2" /> Run
+          <Button size="sm" className="h-8 bg-blue-600 hover:bg-blue-700 text-white font-bold" onClick={onPublish}>
+            <Play size={14} className="mr-2 fill-current" /> RUN SITE
           </Button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Container */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar: File Explorer */}
+      {/* Main Workspace */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* Left: Explorer */}
         {showSidebar && (
-          <div className="w-64 border-r border-white/10 bg-[#121225] flex flex-col">
-            <FileExplorer 
-              files={files} 
-              activeFileId={activeTabId} 
-              onFileSelect={(f) => {
-                if (f.type === 'file') {
-                  if (!openTabs.find(t => t.id === f.id)) {
-                    setOpenTabs([...openTabs, { id: f.id, name: f.name, language: getLanguage(f.extension) }]);
+          <aside className="w-64 border-r border-white/5 bg-[#0c0c0e] flex flex-col">
+            <div className="p-3 flex items-center justify-between border-b border-white/5">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Explorer</span>
+              <Button variant="ghost" size="icon" className="h-6 w-6"><Plus size={14}/></Button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <FileExplorer 
+                files={files} 
+                activeFileId={activeTabId} 
+                onFileSelect={(f) => {
+                  if (f.type === 'file') {
+                    if (!openTabs.find(t => t.id === f.id)) {
+                      setOpenTabs([...openTabs, { id: f.id, name: f.name, language: getLanguage(f.extension) }]);
+                    }
+                    setActiveTabId(f.id);
                   }
-                  setActiveTabId(f.id);
-                }
-              }} 
-            />
-          </div>
+                }} 
+              />
+            </div>
+          </aside>
         )}
 
-        {/* Editor Area */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Center: Editor */}
+        <section className="flex-1 flex flex-col min-w-0 bg-[#0c0c0e]">
           <EditorTabs 
             tabs={openTabs} 
             activeTabId={activeTabId} 
             onTabSelect={setActiveTabId} 
             onTabClose={(id) => {
-              const filtered = openTabs.filter(t => t.id !== id);
-              setOpenTabs(filtered);
-              if (activeTabId === id && filtered.length > 0) setActiveTabId(filtered[filtered.length - 1].id);
+              const remaining = openTabs.filter(t => t.id !== id);
+              setOpenTabs(remaining);
+              if (activeTabId === id && remaining.length > 0) setActiveTabId(remaining[remaining.length-1].id);
             }} 
           />
           <div className="flex-1 relative">
@@ -201,33 +225,65 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 onChange={(v) => updateFileContent(activeTabId, v || '')} 
               />
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-white/20 gap-4">
-                <Code2 size={64} strokeWidth={1} />
-                <p className="text-sm">হামাগো বগুড়ার এডিটরে ফাইল একটা বাছেন শুরু করবার জন্য!</p>
+              <div className="h-full flex flex-col items-center justify-center space-y-4 bg-[#09090b]">
+                <div className="p-6 rounded-full bg-white/5 border border-white/10">
+                  <Cpu size={48} className="text-slate-700 animate-pulse" />
+                </div>
+                <div className="text-center">
+                  <h3 className="text-slate-400 font-medium font-bogura">সিয়াম ভাই, একটা ফাইল সিলেক্ট করেন!</h3>
+                  <p className="text-xs text-slate-600 mt-1">আপনার ৪জিবি র‍্যাম পিসিতে এডিটর রেডি।</p>
+                </div>
               </div>
             )}
           </div>
-        </div>
+          
+          {/* Bottom Terminal Toggle */}
+          <div className="h-8 border-t border-white/5 bg-[#0c0c0e] flex items-center px-4 justify-between">
+            <button onClick={() => setTerminalOpen(!terminalOpen)} className="flex items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-white uppercase">
+              <Terminal size={12} /> Terminal
+            </button>
+            <div className="flex items-center gap-4 text-[10px] text-slate-600">
+              <span>UTF-8</span>
+              <span>{activeFile?.extension?.toUpperCase() || 'NONE'}</span>
+            </div>
+          </div>
+        </section>
 
-        {/* Right Panel: AI Chat */}
-        <div className="w-[400px] border-l border-white/10 bg-[#121225] hidden lg:flex flex-col">
-           <UnifiedAIChatPanel 
-             onInsertCode={(code) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + code)} 
-             onFileOperations={executeOperations} 
-             currentFiles={files.map(f => ({ path: f.name, content: f.content || '' }))}
-           />
-        </div>
-      </div>
+        {/* Right: AI Panel */}
+        <aside className="w-[450px] border-l border-white/5 bg-[#0c0c0e] flex flex-col">
+          <div className="flex border-b border-white/5">
+            <button 
+              onClick={() => setRightPanel('chat')}
+              className={cn("flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all", 
+              rightPanel === 'chat' ? "text-blue-400 border-b-2 border-blue-400 bg-blue-400/5" : "text-slate-500")}
+            >AI Assistant</button>
+            <button 
+              onClick={() => setRightPanel('preview')}
+              className={cn("flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all", 
+              rightPanel === 'preview' ? "text-emerald-400 border-b-2 border-emerald-400 bg-emerald-400/5" : "text-slate-500")}
+            >Live Preview</button>
+          </div>
+          
+          <div className="flex-1 overflow-hidden">
+            {rightPanel === 'chat' ? (
+              <UnifiedAIChatPanel 
+                onInsertCode={(code) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + code)} 
+                onFileOperations={executeOperations} 
+                currentFiles={files.map(f => ({ path: f.name, content: f.content || '' }))}
+              />
+            ) : (
+              <PreviewPanel projectName={projectName} files={files} />
+            )}
+          </div>
+        </aside>
+      </main>
 
-      {/* Project History Modal */}
+      {/* History Overlay */}
       {showProjectHistory && (
         <ProjectHistoryPanel 
-          projects={projects} 
-          currentProjectId={currentProject?.id} 
-          onCreateProject={createProject} 
-          onLoadProject={loadProject} 
-          onDeleteProject={deleteProject} 
-          onDuplicateProject={duplicateProject} 
+          projects={projects} currentProjectId={currentProject?.id} 
+          onCreateProject={createProject} onLoadProject={loadProject} 
+          onDeleteProject={deleteProject} onDuplicateProject={duplicateProject} 
           onClose={() => setShowProjectHistory(false)} 
         />
       )}
