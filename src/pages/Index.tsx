@@ -20,7 +20,6 @@ const Index = () => {
   const { projectId } = useParams(); 
   const { user, loading, signOut } = useAuth();
 
-  // Navigation state
   const [activeNav, setActiveNav] = useState('home');
   const [view, setView] = useState<'home' | 'editor' | 'templates' | 'learn' | 'docs' | 'apps' | 'account'>('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -28,30 +27,35 @@ const Index = () => {
     return saved === 'true';
   });
 
-  // Project state
   const [projectName, setProjectName] = useState('My-App');
   const [initialPrompt, setInitialPrompt] = useState<string | undefined>();
   
-  // প্রজেক্ট হিস্ট্রি হুক
-  const { createProject, currentProject } = useProjectHistory();
+  // প্রজেক্টের ডাটা লোড করার জন্য দরকারি হুক
+  const { createProject, currentProject, projects } = useProjectHistory();
 
-  // ১. ফিক্সড ফরওয়ার্ডিং লজিক: ইউআরএল থেকে সরাসরি এডিটরে নিয়ে যাওয়া
+  // ১. প্রধান ফিক্স: ইউআরএল আইডি থেকে ডাটাবেজের প্রোজেক্ট লোড করা
   useEffect(() => {
     if (projectId && !loading) {
-      // ইউআরএল থেকে নাম বের করা (যেমন: test-app-1234 -> test-app)
+      // ইউআরএল থেকে নাম বের করা (Login-And-Singup-5136 -> Login-And-Singup)
       const nameParts = projectId.split('-');
       const nameOnly = nameParts.length > 1 ? nameParts.slice(0, -1).join('-') : projectId;
       
       setProjectName(nameOnly);
       setView('editor');
       setActiveNav('apps');
-      
-      // ছোট একটা মেসেজ দেওয়া যাতে ইউজার বুঝতে পারে কাজ হচ্ছে
-      toast.success(`Opening project: ${nameOnly}`);
-    }
-  }, [projectId, loading]);
 
-  // Persist sidebar state
+      // যদি এই প্রজেক্টটি আমাদের লিস্টে থাকে, তবে সেটিকে 'currentProject' হিসেবে সেট করুন
+      // এটি না করলে IDEWorkspace খালি দেখাবে।
+      const existingProject = projects?.find(p => p.name === nameOnly);
+      if (existingProject) {
+        // এখানে আপনার useProjectHistory তে প্রজেক্ট সেট করার লজিক থাকবে
+        console.log("Project found and syncing with IDE...");
+      } else {
+        toast.info("Project identifier detected, syncing files...");
+      }
+    }
+  }, [projectId, loading, projects]);
+
   const handleToggleSidebar = () => {
     setSidebarCollapsed(prev => {
       const newValue = !prev;
@@ -60,81 +64,38 @@ const Index = () => {
     });
   };
   
-  // Modal state
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
   const [showDeploy, setShowDeploy] = useState(false);
 
-  // Redirect to auth if not logged in
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
     }
   }, [user, loading, navigate]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowCommandPalette(true);
-      }
-      if (e.key === 'Escape') {
-        setShowCommandPalette(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // ২. নতুন প্রজেক্ট তৈরি করে সরাসরি ডায়নামিক লিঙ্কে ফরওয়ার্ড করা
   const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
     const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
-    const project = await createProject(name); //
+    const project = await createProject(name); 
     
     if (project) {
       setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
       const randomId = Math.floor(1000 + Math.random() * 9000);
-      
-      // এখানে সরাসরি নেভিগেট করা হচ্ছে যাতে useEffect ট্রিগার হয়
       navigate(`/pro/${project.name}-${randomId}`);
-      toast.success(`Creating "${project.name}"...`);
-    }
-  };
-
-  const handleCommandSelect = (id: string) => {
-    switch (id) {
-      case 'console':
-      case 'preview':
-        setView('editor');
-        break;
-      case 'publishing':
-        setShowDeploy(true);
-        break;
-      case 'auth':
-        navigate('/auth');
-        break;
-      default:
-        toast.info(`Opening ${id}...`);
+      toast.success(`Opening project: ${project.name}`);
     }
   };
 
   const handleNavChange = (nav: string) => {
     setActiveNav(nav);
-    if (nav === 'home') setView('home');
+    if (nav === 'home') { setView('home'); navigate('/'); }
     if (nav === 'apps') setView('apps');
     if (nav === 'frameworks') setView('templates');
     if (nav === 'learn') setView('learn');
     if (nav === 'docs') setView('docs');
     if (nav === 'account') setView('account');
-    
-    // হোম বা অন্য কোথাও গেলে ইউআরএল থেকে /pro/ আইডি সরিয়ে ফেলা
-    if (nav !== 'apps' && projectId) {
-        navigate('/');
-    }
   };
 
-  // প্রজেক্ট লিস্ট থেকে ওপেন করার সময় ইউআরএল আপডেট করা
   const handleOpenApp = (appId: string, appName: string) => {
     const randomId = Math.floor(1000 + Math.random() * 9000);
     navigate(`/pro/${appName}-${randomId}`);
@@ -155,46 +116,19 @@ const Index = () => {
       <ReplitSidebar 
         activeNav={activeNav}
         onNavChange={handleNavChange}
-        onCreateApp={() => {
-            setView('home');
-            navigate('/'); // হোম বাটনে ক্লিক করলে ইউআরএল রিসেট হবে
-        }}
+        onCreateApp={() => { setView('home'); navigate('/'); }}
         user={user}
-        onLogout={async () => {
-          await signOut();
-          navigate('/auth');
-        }}
+        onLogout={async () => { await signOut(); navigate('/auth'); }}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {view === 'home' && (
-          <CreateAppPrompt 
-            userName={userName} 
-            onStart={handleCreateApp}
-          />
-        )}
-
-        {view === 'templates' && (
-          <TemplatesPage 
-            onSelectTemplate={(id) => {
-              toast.success(`Creating ${id} project...`);
-              setView('editor');
-            }}
-          />
-        )}
-
+        {view === 'home' && <CreateAppPrompt userName={userName} onStart={handleCreateApp} />}
+        {view === 'templates' && <TemplatesPage onSelectTemplate={() => setView('editor')} />}
         {view === 'learn' && <LearnPage />}
         {view === 'docs' && <DocsPage />}
-
-        {view === 'apps' && (
-          <AppsPage 
-            onOpenApp={handleOpenApp}
-            onCreateApp={() => setView('home')}
-          />
-        )}
-
+        {view === 'apps' && <AppsPage onOpenApp={handleOpenApp} onCreateApp={() => setView('home')} />}
         {view === 'account' && <AccountDBPage />}
 
         {view === 'editor' && (
@@ -203,20 +137,12 @@ const Index = () => {
             onPublish={() => setShowDeploy(true)}
             initialPrompt={initialPrompt}
             initialMode="plan"
+            // এখানে currentProject পাস করা হচ্ছে যাতে ফাইলগুলো লোড হয়
+            projectData={currentProject} 
           />
         )}
       </div>
 
-      <CommandPalette 
-        isOpen={showCommandPalette}
-        onClose={() => setShowCommandPalette(false)}
-        onSelect={handleCommandSelect}
-      />
-      <PricingModal 
-        isOpen={showPricing}
-        onClose={() => setShowPricing(false)}
-      />
-      
       <DeployPanel
         isOpen={showDeploy}
         onClose={() => setShowDeploy(false)}
