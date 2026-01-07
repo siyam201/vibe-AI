@@ -1,45 +1,41 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   PanelLeftClose, PanelLeftOpen, Play, Share2, Settings, History,
-  Terminal, Eye, Code2, Package, Save, Download, FolderOpen, GitBranch,
-  Cloud, Check, CloudOff, Loader2, Plus, X, Trash2, Edit3, ChevronRight,
-  ChevronDown, Search, FileCode, FolderPlus, FilePlus, Copy, Github,
-  MoreVertical, Command, Zap, MessageSquare, Globe, Send, Sparkles, RefreshCw
+  Terminal, Eye, Code2, Save, X, Trash2, ChevronRight, ChevronDown, 
+  FileCode, FolderPlus, FilePlus, Zap, MessageSquare, Globe, Send, 
+  Sparkles, RefreshCw, Loader2, Check, CloudOff, MoreVertical, Search,
+  Download, GitBranch, Github, Copy, ExternalLink, Menu
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { Database } from '@/integrations/supabase/types';
 
-// --- TYPES ---
+// --- TYPES & INTERFACES ---
+type Project = Database['public']['Tables']['projects']['Row'];
+
 export interface FileItem {
   id: string;
   name: string;
   type: 'file' | 'folder';
-  extension?: string;
   content?: string;
   parentId: string | null;
   children?: FileItem[];
   isOpen?: boolean;
+  extension?: string;
 }
 
 interface IDEWorkspaceProps {
-  projectName: string;
-  projectId: string; // সুপাবেস প্রজেক্ট আইডি
+  projectId: string;
+  projectName?: string;
 }
 
-// --- HELPER COMPONENT: FILE TREE ---
-const FileNode = ({ 
-  item, 
-  level, 
-  activeId, 
-  onSelect, 
-  onDelete, 
-  onToggle 
+// --- HELPER: FILE TREE ENGINE ---
+const FileTreeItem = ({ 
+  item, level, activeId, onSelect, onDelete, onToggle 
 }: { 
-  item: FileItem; 
-  level: number; 
-  activeId: string; 
+  item: FileItem; level: number; activeId: string; 
   onSelect: (item: FileItem) => void; 
   onDelete: (id: string) => void;
   onToggle: (id: string) => void;
@@ -48,40 +44,37 @@ const FileNode = ({
   const isFolder = item.type === 'folder';
 
   return (
-    <div className="flex flex-col select-none">
+    <div className="flex flex-col">
       <div 
+        onClick={() => isFolder ? onToggle(item.id) : onSelect(item)}
         className={cn(
-          "flex items-center gap-2 px-3 py-1.5 cursor-pointer group transition-all",
-          isSelected ? "bg-primary/20 text-white border-l-2 border-primary" : "hover:bg-white/5 text-slate-400"
+          "flex items-center gap-2 px-3 py-1.5 cursor-pointer group transition-colors relative",
+          isSelected ? "bg-primary/10 text-primary border-r-2 border-primary" : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
         )}
         style={{ paddingLeft: `${level * 12 + 12}px` }}
-        onClick={() => isFolder ? onToggle(item.id) : onSelect(item)}
       >
         {isFolder ? (
-          item.isOpen ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />
+          item.isOpen ? <ChevronDown size={14} className="opacity-50" /> : <ChevronRight size={14} className="opacity-50" />
         ) : (
           <FileCode size={14} className={isSelected ? "text-primary" : "text-slate-500"} />
         )}
         <span className="text-[13px] font-medium truncate flex-1">{item.name}</span>
+        
         <button 
           onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
-          className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-500"
+          className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-500 transition-opacity"
         >
           <Trash2 size={12} />
         </button>
       </div>
 
       {isFolder && item.isOpen && item.children && (
-        <div>
+        <div className="border-l border-white/5 ml-[18px]">
           {item.children.map(child => (
-            <FileNode 
-              key={child.id} 
-              item={child} 
-              level={level + 1} 
-              activeId={activeId} 
-              onSelect={onSelect} 
-              onDelete={onDelete}
-              onToggle={onToggle}
+            <FileTreeItem 
+              key={child.id} item={child} level={level + 1} 
+              activeId={activeId} onSelect={onSelect} 
+              onDelete={onDelete} onToggle={onToggle} 
             />
           ))}
         </div>
@@ -90,47 +83,46 @@ const FileNode = ({
   );
 };
 
-// --- MAIN WORKSPACE COMPONENT ---
-export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
-  // ১. সকল স্টেট (State Management)
+// --- MAIN IDE COMPONENT ---
+export const IDEWorkspace = ({ projectId, projectName: initialName }: IDEWorkspaceProps) => {
+  // ১. স্টেট লজিক (র‍্যাম সাশ্রয়ী)
+  const [project, setProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [openTabs, setOpenTabs] = useState<string[]>([]);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const [showSidebar, setShowSidebar] = useState(true);
-  const [rightPanel, setRightPanel] = useState<'preview' | 'ai' | 'git'>('preview');
+  const [rightPanel, setRightPanel] = useState<'preview' | 'ai'>('preview');
   const [aiMessage, setAiMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<{role: 'user'|'ai', content: string}[]>([]);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [lastSynced, setLastSynced] = useState<string>('');
+  const [terminalLines, setTerminalLines] = useState<string[]>(['VibeCode Engine v2.0 initialized...', 'System: Bogura_Node_Connected']);
 
-  // ২. সুপাবেস থেকে ডাটা লোড করা
+  // ২. ডাটাবেজ লোডিং
   useEffect(() => {
     const fetchProject = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('id', projectId)
-          .maybeSingle();
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .maybeSingle();
 
-        if (data?.files) {
-          setFiles(data.files);
-          // প্রথম ফাইলটি অটো ওপেন করা
-          const firstFile = findFirstFile(data.files);
-          if (firstFile) {
-            setActiveTabId(firstFile.id);
-            setOpenTabs([firstFile.id]);
-          }
+      if (data) {
+        setProject(data);
+        const initialFiles = (data.files as unknown as FileItem[]) || [];
+        setFiles(initialFiles);
+        
+        // অটো-ট্যাব ওপেনিং
+        const first = initialFiles.find(f => f.type === 'file');
+        if (first) {
+          setActiveTabId(first.id);
+          setOpenTabs([first.id]);
         }
-      } catch (err) {
-        toast.error("সুপাবেস ডাটাবেজ কানেক্ট হচ্ছে না!");
       }
     };
     fetchProject();
   }, [projectId]);
 
-  // ৩. অটো-সেভ লজিক (Auto-Save Function)
+  // ৩. স্মার্ট অটো-সেভ লজিক (Debounced Cloud Sync)
   useEffect(() => {
     if (files.length === 0) return;
 
@@ -138,48 +130,59 @@ export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
       setSaveStatus('saving');
       const { error } = await supabase
         .from('projects')
-        .update({ 
-          files: files, 
-          updated_at: new Date().toISOString() 
-        })
+        .update({ files: files as any, updated_at: new Date().toISOString() })
         .eq('id', projectId);
 
       if (!error) {
         setSaveStatus('saved');
-        setLastSynced(new Date().toLocaleTimeString());
+        setTerminalLines(prev => [...prev.slice(-5), `[${new Date().toLocaleTimeString()}] Cloud Sync: Success`]);
       } else {
-        setSaveStatus('error');
-        toast.error("সেভ করা সম্ভব হয়নি!");
+        setSaveStatus('unsaved');
+        toast.error("সেভ হতে সমস্যা হচ্ছে!");
       }
-    }, 3000); // ৩ সেকেন্ড ডিবাইন্স
+    }, 2500);
 
     return () => clearTimeout(timer);
   }, [files, projectId]);
 
-  // ৪. ফাইল অপারেশনস (Recursive Helpers)
-  const findFirstFile = (items: FileItem[]): FileItem | null => {
-    for (const item of items) {
-      if (item.type === 'file') return item;
-      if (item.children) {
-        const found = findFirstFile(item.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
-  const findFileById = useCallback((items: FileItem[], id: string): FileItem | null => {
+  // ৪. ফাইল অপারেশন হ্যান্ডলার
+  const findFile = useCallback((items: FileItem[], id: string): FileItem | null => {
     for (const item of items) {
       if (item.id === id) return item;
       if (item.children) {
-        const found = findFileById(item.children, id);
+        const found = findFile(item.children, id);
         if (found) return found;
       }
     }
     return null;
   }, []);
 
-  const activeFile = useMemo(() => findFileById(files, activeTabId), [files, activeTabId, findFileById]);
+  const activeFile = useMemo(() => findFile(files, activeTabId), [files, activeTabId, findFile]);
+
+  const updateFileContent = (id: string, newContent: string) => {
+    const updateRecursive = (items: FileItem[]): FileItem[] => items.map(item => {
+      if (item.id === id) return { ...item, content: newContent };
+      if (item.children) return { ...item, children: updateRecursive(item.children) };
+      return item;
+    });
+    setFiles(updateRecursive(files));
+    setSaveStatus('unsaved');
+  };
+
+  const handleCreateFile = (type: 'file' | 'folder') => {
+    const name = prompt(`Enter ${type} name:`);
+    if (!name) return;
+    const newItem: FileItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      type,
+      parentId: null,
+      content: type === 'file' ? '' : undefined,
+      children: type === 'folder' ? [] : undefined,
+      isOpen: true
+    };
+    setFiles([...files, newItem]);
+  };
 
   const toggleFolder = (id: string) => {
     const update = (items: FileItem[]): FileItem[] => items.map(item => {
@@ -190,133 +193,85 @@ export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
     setFiles(update(files));
   };
 
-  const addNewItem = (type: 'file' | 'folder') => {
-    const name = prompt(`${type === 'file' ? 'File' : 'Folder'} Name:`);
-    if (!name) return;
-
-    const newItem: FileItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      name,
-      type,
-      parentId: null,
-      content: type === 'file' ? '' : undefined,
-      children: type === 'folder' ? [] : undefined,
-      isOpen: true
-    };
-
-    setFiles([...files, newItem]);
-    if (type === 'file') {
-      setActiveTabId(newItem.id);
-      setOpenTabs(prev => [...new Set([...prev, newItem.id])]);
-    }
-  };
-
-  const deleteItem = (id: string) => {
-    const filter = (items: FileItem[]): FileItem[] => items.filter(item => {
-      if (item.id === id) return false;
-      if (item.children) item.children = filter(item.children);
-      return true;
-    });
-    setFiles(filter(files));
-    setOpenTabs(prev => prev.filter(tid => tid !== id));
-  };
-
-  // ৫. AI চ্যাট হ্যান্ডলার
-  const handleAiSearch = () => {
-    if (!aiMessage.trim()) return;
-    const userMsg = aiMessage;
-    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
-    setAiMessage('');
-    
-    // সিমুলেটেড AI রেসপন্স (বগুড়ার ভাষায় কিছুটা স্বাদ রাখা হয়েছে)
-    setTimeout(() => {
-      setChatHistory(prev => [...prev, { 
-        role: 'ai', 
-        content: `সিয়াম ভাই, "${userMsg}" এর ওপর কাজ করছি। আপনার বর্তমান ফাইল "${activeFile?.name || 'কোনো ফাইল নেই'}" এ আমি কিছু কোড অপ্টিমাইজ করার পরামর্শ দিচ্ছি।` 
-      }]);
-    }, 1000);
-  };
-
-  // ৬. প্রিভিউ কোড জেনারেটর
-  const getPreviewDoc = () => {
-    const htmlFile = files.find(f => f.name.endsWith('.html'))?.content || '<h1>No index.html</h1>';
-    const cssFile = files.find(f => f.name.endsWith('.css'))?.content || '';
-    return `
-      <html>
-        <style>${cssFile}</style>
-        <body>${htmlFile}</body>
-      </html>
-    `;
+  // ৫. প্রিভিউ বিল্ডার (HTML/CSS/JS Integration)
+  const getCombinedPreview = () => {
+    const html = files.find(f => f.name.endsWith('.html'))?.content || '';
+    const css = files.find(f => f.name.endsWith('.css'))?.content || '';
+    return `<html><style>${css}</style><body>${html}</body></html>`;
   };
 
   return (
-    <div className="flex flex-col h-screen w-full bg-[#08080e] text-slate-300 font-sans selection:bg-primary/30 overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#05050a] text-slate-300 overflow-hidden font-sans">
       
-      {/* --- HEADER --- */}
-      <header className="h-12 border-b border-white/5 bg-[#0d0d1a] flex items-center justify-between px-4 z-50 shadow-2xl">
+      {/* --- TOP NAVIGATION --- */}
+      <header className="h-12 border-b border-white/5 bg-[#0d0d1a] flex items-center justify-between px-4 z-50">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-primary/10 px-3 py-1.5 rounded-lg border border-primary/20">
-            <Zap className="w-4 h-4 text-primary fill-primary" />
-            <span className="text-xs font-black text-white tracking-widest uppercase">{projectName}</span>
+          <div className="flex items-center gap-2 bg-primary/20 px-3 py-1.5 rounded-lg border border-primary/30">
+            <Zap className="w-4 h-4 text-primary fill-primary animate-pulse" />
+            <span className="text-[11px] font-black text-white uppercase tracking-tighter">
+              {project?.name || initialName || 'VibeCode'}
+            </span>
           </div>
-          
-          {/* Cloud Status */}
+
+          {/* Cloud Status Indicator */}
           <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
-            {saveStatus === 'saving' ? <Loader2 size={12} className="animate-spin text-amber-500" /> : 
-             saveStatus === 'saved' ? <Check size={14} className="text-emerald-500 font-bold" /> : 
-             <CloudOff size={14} className="text-rose-500" />}
-            <span className={cn("text-[9px] font-bold uppercase tracking-tighter", 
-              saveStatus === 'saving' ? "text-amber-500" : saveStatus === 'saved' ? "text-emerald-500" : "text-rose-500"
+            {saveStatus === 'saving' ? (
+              <Loader2 size={12} className="animate-spin text-amber-500" />
+            ) : (
+              <Check size={12} className="text-emerald-500" />
+            )}
+            <span className={cn("text-[9px] font-bold uppercase", 
+              saveStatus === 'saving' ? "text-amber-500" : "text-emerald-500"
             )}>
-              {saveStatus === 'saving' ? "Syncing..." : saveStatus === 'saved' ? `Synced ${lastSynced}` : "Offline"}
+              {saveStatus === 'saving' ? 'Syncing...' : 'Cloud Active'}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 text-[11px] gap-2 hover:bg-white/10"><Share2 size={14}/> SHARE</Button>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 text-[11px] font-bold px-4 rounded-full transition-all shadow-lg shadow-emerald-500/20 active:scale-95">
+          <Button variant="ghost" size="sm" className="h-8 text-[11px] font-bold hover:bg-white/10"><Share2 size={14} className="mr-2"/> SHARE</Button>
+          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 text-[11px] font-black px-5 rounded-full shadow-lg shadow-emerald-500/10">
             <Play size={12} fill="white" className="mr-2" /> RUN APP
           </Button>
-          <div className="w-[1px] h-6 bg-white/10 mx-1" />
+          <div className="w-[1px] h-6 bg-white/10 mx-2" />
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><Settings size={16} /></Button>
         </div>
       </header>
 
-      {/* --- MAIN BODY --- */}
+      {/* --- MAIN LAYOUT --- */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* Left Mini Sidebar (Activity Bar) */}
-        <nav className="w-14 bg-[#0a0a14] border-r border-white/5 flex flex-col items-center py-4 gap-4">
-          <button onClick={() => setShowSidebar(!showSidebar)} className={cn("p-2.5 rounded-xl transition-all", showSidebar ? "text-primary bg-primary/10" : "text-slate-500 hover:text-white")}><FolderOpen size={20} /></button>
-          <button onClick={() => setRightPanel('ai')} className={cn("p-2.5 rounded-xl transition-all", rightPanel === 'ai' ? "text-primary bg-primary/10" : "text-slate-500 hover:text-white")}><MessageSquare size={20} /></button>
-          <button onClick={() => setRightPanel('preview')} className={cn("p-2.5 rounded-xl transition-all", rightPanel === 'preview' ? "text-primary bg-primary/10" : "text-slate-500 hover:text-white")}><Globe size={20} /></button>
-          <div className="mt-auto p-2.5 text-slate-600 hover:text-white cursor-pointer"><Settings size={20} /></div>
-        </nav>
+        {/* Activity Bar (Mini Sidebar) */}
+        <aside className="w-12 bg-[#0a0a14] border-r border-white/5 flex flex-col items-center py-4 gap-6 shrink-0">
+          <button onClick={() => setShowSidebar(!showSidebar)} className={cn("transition-colors", showSidebar ? "text-primary" : "text-slate-600 hover:text-white")}><FolderOpen size={20} /></button>
+          <button onClick={() => setRightPanel('ai')} className={cn("transition-colors", rightPanel === 'ai' ? "text-primary" : "text-slate-600 hover:text-white")}><MessageSquare size={20} /></button>
+          <button onClick={() => setRightPanel('preview')} className={cn("transition-colors", rightPanel === 'preview' ? "text-primary" : "text-slate-600 hover:text-white")}><Globe size={20} /></button>
+          <div className="mt-auto flex flex-col gap-6 mb-2">
+             <button className="text-slate-600 hover:text-white"><Github size={20} /></button>
+             <button className="text-slate-600 hover:text-white"><History size={20} /></button>
+          </div>
+        </aside>
 
-        {/* File Explorer Sidebar */}
+        {/* File Explorer */}
         {showSidebar && (
-          <aside className="w-64 bg-[#0d0d1a] border-r border-white/5 flex flex-col animate-in slide-in-from-left duration-300">
-            <div className="p-4 flex items-center justify-between border-b border-white/5">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Explorer</span>
-              <div className="flex gap-2">
-                <button onClick={() => addNewItem('file')} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><FilePlus size={15} /></button>
-                <button onClick={() => addNewItem('folder')} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><FolderPlus size={15} /></button>
+          <aside className="w-60 bg-[#0d0d1a] border-r border-white/5 flex flex-col shrink-0 animate-in slide-in-from-left duration-200">
+            <div className="p-4 flex items-center justify-between bg-[#0a0a14]/50 border-b border-white/5">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Workspace</span>
+              <div className="flex gap-1">
+                <button onClick={() => handleCreateFile('file')} className="p-1 hover:bg-white/10 rounded text-slate-400"><FilePlus size={14} /></button>
+                <button onClick={() => handleCreateFile('folder')} className="p-1 hover:bg-white/10 rounded text-slate-400"><FolderPlus size={14} /></button>
               </div>
             </div>
-            
             <div className="flex-1 overflow-y-auto pt-2 custom-scrollbar">
               {files.map(item => (
-                <FileNode 
-                  key={item.id} 
-                  item={item} 
-                  level={0} 
+                <FileTreeItem 
+                  key={item.id} item={item} level={0} 
                   activeId={activeTabId} 
                   onSelect={(file) => {
                     setActiveTabId(file.id);
-                    setOpenTabs(prev => [...new Set([...prev, file.id])]);
+                    if (!openTabs.includes(file.id)) setOpenTabs([...openTabs, file.id]);
                   }}
-                  onDelete={deleteItem}
+                  onDelete={(id) => setFiles(prev => prev.filter(f => f.id !== id))}
                   onToggle={toggleFolder}
                 />
               ))}
@@ -324,32 +279,32 @@ export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
           </aside>
         )}
 
-        {/* Center: Editor Area */}
-        <main className="flex-1 flex flex-col bg-[#08080e] min-w-0 overflow-hidden">
-          {/* Tabs Bar */}
+        {/* Editor Engine */}
+        <main className="flex-1 flex flex-col bg-[#05050a] min-w-0 overflow-hidden relative">
+          {/* Editor Tabs */}
           <div className="flex bg-[#0d0d1a] border-b border-white/5 overflow-x-auto no-scrollbar h-10 items-center">
             {openTabs.map(tabId => {
-              const file = findFileById(files, tabId);
+              const file = findFile(files, tabId);
               if (!file) return null;
               return (
                 <div 
                   key={tabId}
                   onClick={() => setActiveTabId(tabId)}
                   className={cn(
-                    "flex items-center gap-2 px-4 h-full text-[11px] font-medium border-r border-white/5 cursor-pointer transition-all group min-w-[120px]",
-                    activeTabId === tabId ? "bg-[#08080e] text-primary border-t-2 border-primary" : "text-slate-500 hover:bg-white/5"
+                    "flex items-center gap-2 px-4 h-full text-[11px] font-bold border-r border-white/5 cursor-pointer transition-all min-w-[130px] group relative",
+                    activeTabId === tabId ? "bg-[#05050a] text-primary border-t-2 border-primary" : "text-slate-500 hover:bg-white/5"
                   )}
                 >
-                  <FileCode size={12} className={activeTabId === tabId ? "text-primary" : "text-slate-500"} />
+                  <FileCode size={12} />
                   <span className="truncate flex-1">{file.name}</span>
                   <X 
                     size={12} 
-                    className="opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded-sm" 
+                    className="opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded p-0.5" 
                     onClick={(e) => {
                       e.stopPropagation();
-                      const newTabs = openTabs.filter(t => t !== tabId);
-                      setOpenTabs(newTabs);
-                      if (activeTabId === tabId && newTabs.length > 0) setActiveTabId(newTabs[newTabs.length - 1]);
+                      const filtered = openTabs.filter(t => t !== tabId);
+                      setOpenTabs(filtered);
+                      if (activeTabId === tabId && filtered.length > 0) setActiveTabId(filtered[filtered.length-1]);
                     }}
                   />
                 </div>
@@ -357,94 +312,126 @@ export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
             })}
           </div>
 
-          {/* Text Editor */}
-          <div className="flex-1 relative overflow-hidden">
+          {/* Real-time Code Input */}
+          <div className="flex-1 relative">
             {activeFile ? (
-              <textarea
-                value={activeFile.content || ''}
-                spellCheck={false}
-                onChange={(e) => {
-                  const update = (items: FileItem[]): FileItem[] => items.map(item => {
-                    if (item.id === activeTabId) return { ...item, content: e.target.value };
-                    if (item.children) return { ...item, children: update(item.children) };
-                    return item;
-                  });
-                  setFiles(update(files));
-                  setSaveStatus('unsaved');
-                }}
-                className="w-full h-full bg-transparent p-8 font-mono text-sm outline-none resize-none leading-relaxed caret-primary text-slate-200"
-                autoFocus
-              />
+              <div className="h-full flex">
+                {/* Line Numbers Sim */}
+                <div className="w-10 bg-[#08080e] border-r border-white/5 flex flex-col items-center pt-6 text-[11px] text-slate-600 font-mono select-none">
+                  {Array.from({length: 40}).map((_, i) => <div key={i}>{i+1}</div>)}
+                </div>
+                <textarea
+                  value={activeFile.content || ''}
+                  onChange={(e) => updateFileContent(activeTabId, e.target.value)}
+                  spellCheck={false}
+                  autoFocus
+                  className="flex-1 bg-transparent p-6 font-mono text-[13px] outline-none resize-none leading-relaxed text-slate-300 custom-scrollbar"
+                />
+              </div>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center opacity-10">
-                <Code2 size={100} strokeWidth={1} />
-                <h2 className="text-2xl font-black mt-4 uppercase tracking-[10px]">VIBE CODE</h2>
-                <p className="mt-2 text-xs">বগুড়া থেকে বিশ্বজয়ের পথে সিয়াম ভাই</p>
+              <div className="h-full flex flex-col items-center justify-center opacity-10 select-none">
+                <Code2 size={120} strokeWidth={1} className="text-primary" />
+                <h2 className="text-4xl font-black mt-4 tracking-[20px] text-white">VIBECODE</h2>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-primary">Powered by Bogura Engine</p>
               </div>
             )}
           </div>
 
-          {/* Integrated Terminal Panel */}
+          {/* Integrated Terminal */}
           {isTerminalOpen && (
-            <div className="h-48 bg-[#0a0a14] border-t border-white/10 flex flex-col animate-in slide-in-from-bottom">
-              <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/5">
-                <span className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">Bash Output</span>
-                <button onClick={() => setIsTerminalOpen(false)} className="hover:bg-white/10 p-1 rounded"><X size={12} /></button>
+            <div className="h-44 bg-[#08080e] border-t border-white/10 flex flex-col animate-in slide-in-from-bottom duration-300">
+              <div className="flex items-center justify-between px-4 py-1.5 bg-white/5 border-b border-white/5">
+                <div className="flex gap-4">
+                  <span className="text-[10px] font-black uppercase text-emerald-500 tracking-tighter flex items-center gap-2"><Terminal size={12}/> Output</span>
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">Problems</span>
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">Debug Console</span>
+                </div>
+                <button onClick={() => setIsTerminalOpen(false)} className="hover:bg-white/10 p-1 rounded"><X size={12}/></button>
               </div>
-              <div className="flex-1 p-4 font-mono text-xs text-emerald-400 overflow-y-auto custom-scrollbar">
-                <div>➜ <span className="text-white">vibecode init</span></div>
-                <div className="text-slate-500">Project {projectName} initialized successfully.</div>
-                <div className="mt-1">➜ <span className="animate-pulse">_</span></div>
+              <div className="flex-1 p-4 font-mono text-[11px] text-slate-400 overflow-y-auto custom-scrollbar">
+                {terminalLines.map((line, i) => (
+                  <div key={i} className="mb-1">
+                    <span className="text-emerald-500 mr-2">➜</span> {line}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2">
+                   <span className="text-primary">➜</span>
+                   <input className="bg-transparent outline-none text-white w-full" autoFocus />
+                </div>
               </div>
             </div>
           )}
         </main>
 
-        {/* Right Sidebar: Preview & AI */}
-        <aside className="w-[450px] border-l border-white/5 bg-[#0d0d1a] flex flex-col overflow-hidden">
+        {/* Right Side Panel: AI & Preview */}
+        <aside className="w-[440px] border-l border-white/5 bg-[#0d0d1a] flex flex-col shrink-0">
           <div className="flex h-10 border-b border-white/5">
-            <button onClick={() => setRightPanel('preview')} className={cn("flex-1 text-[10px] font-black uppercase tracking-widest transition-all", rightPanel === 'preview' ? "text-primary border-b-2 border-primary bg-primary/5" : "text-slate-500")}>Live Preview</button>
-            <button onClick={() => setRightPanel('ai')} className={cn("flex-1 text-[10px] font-black uppercase tracking-widest transition-all", rightPanel === 'ai' ? "text-primary border-b-2 border-primary bg-primary/5" : "text-slate-500")}>AI Assistant</button>
+            <button 
+              onClick={() => setRightPanel('preview')} 
+              className={cn("flex-1 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2", 
+                rightPanel === 'preview' ? "text-primary border-b-2 border-primary bg-primary/5" : "text-slate-500 hover:text-white"
+              )}
+            >
+              <Globe size={12} /> Live Preview
+            </button>
+            <button 
+              onClick={() => setRightPanel('ai')} 
+              className={cn("flex-1 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2", 
+                rightPanel === 'ai' ? "text-primary border-b-2 border-primary bg-primary/5" : "text-slate-500 hover:text-white"
+              )}
+            >
+              <Sparkles size={12} /> AI Developer
+            </button>
           </div>
 
           <div className="flex-1 overflow-hidden relative">
             {rightPanel === 'preview' ? (
               <div className="h-full bg-white flex flex-col">
-                <div className="h-8 bg-slate-100 flex items-center px-4 text-[10px] text-slate-500 gap-2 border-b border-slate-200">
-                  <Globe size={10} /> localhost:3000
-                  <RefreshCw size={10} className="ml-auto cursor-pointer" />
+                <div className="h-9 bg-slate-100 border-b border-slate-200 flex items-center px-4 gap-3">
+                  <div className="flex gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                  </div>
+                  <div className="flex-1 bg-white rounded border border-slate-300 px-3 py-1 text-[10px] text-slate-500 truncate">
+                    https://{projectId.slice(0,8)}.vibecode.app
+                  </div>
+                  <RefreshCw size={12} className="text-slate-400 cursor-pointer hover:rotate-180 transition-transform duration-500" />
+                  <ExternalLink size={12} className="text-slate-400 cursor-pointer" />
                 </div>
-                <iframe srcDoc={getPreviewDoc()} className="w-full h-full border-none" title="preview" />
+                <iframe srcDoc={getCombinedPreview()} className="w-full h-full border-none" title="preview" />
               </div>
             ) : (
-              <div className="h-full flex flex-col p-4 bg-gradient-to-b from-[#0d0d1a] to-primary/5">
-                <div className="flex-1 overflow-y-auto space-y-4 mb-4 custom-scrollbar">
-                  {chatHistory.length === 0 && (
-                    <div className="text-center py-10">
-                      <Sparkles className="mx-auto w-10 h-10 text-primary opacity-50 mb-4" />
-                      <p className="text-xs text-slate-500 italic">"সিয়াম ভাই, কি সাহায্য করতে পারি?"</p>
+              <div className="h-full flex flex-col p-4 bg-gradient-to-b from-[#0d0d1a] to-primary/10">
+                <div className="flex-1 overflow-y-auto space-y-4 mb-4 custom-scrollbar pr-2">
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+                      <Zap size={14} className="text-primary fill-primary" />
                     </div>
-                  )}
-                  {chatHistory.map((chat, i) => (
-                    <div key={i} className={cn("flex flex-col gap-1 max-w-[90%]", chat.role === 'user' ? "ml-auto items-end" : "items-start")}>
-                      <div className={cn("p-3 rounded-2xl text-[12px] leading-relaxed", chat.role === 'user' ? "bg-primary text-white rounded-tr-none" : "bg-white/5 border border-white/10 text-slate-300 rounded-tl-none")}>
-                        {chat.content}
-                      </div>
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl rounded-tl-none text-[12px] leading-relaxed shadow-xl">
+                      আসসালামু আলাইকুম সিয়াম ভাই! আপনার <span className="text-primary font-bold">Bogura_Node</span> এখন অনলাইন। 
+                      আমি আপনার প্রজেক্টের বর্তমান ফাইল <span className="underline italic text-white">"{activeFile?.name || 'Empty'}"</span> এর কোড বুঝতে পারছি। 
+                      আপনি কি চান আমি কোন নতুন ফিচার যোগ করি?
                     </div>
-                  ))}
+                  </div>
                 </div>
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    value={aiMessage}
-                    onChange={(e) => setAiMessage(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()}
-                    placeholder="Ask AI or type code..." 
-                    className="w-full bg-[#16162a] border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all pr-12 text-slate-200" 
-                  />
-                  <button onClick={handleAiSearch} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-primary/20 rounded-lg text-primary hover:bg-primary hover:text-white transition-all">
-                    <Send size={16} />
-                  </button>
+                
+                <div className="relative group">
+                  <div className="absolute -inset-0.5 bg-gradient-to-r from-primary to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
+                  <div className="relative flex flex-col bg-[#16162a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                    <textarea 
+                      value={aiMessage}
+                      onChange={(e) => setAiMessage(e.target.value)}
+                      placeholder="Ask AI to generate code..." 
+                      className="w-full bg-transparent p-4 text-[13px] outline-none resize-none h-24 text-slate-200" 
+                    />
+                    <div className="flex items-center justify-between px-4 py-2 border-t border-white/5 bg-white/5">
+                      <span className="text-[10px] font-bold text-slate-500">Ctrl + Enter to send</span>
+                      <button className="bg-primary hover:bg-primary/80 p-2 rounded-xl text-white transition-all transform active:scale-95 shadow-lg shadow-primary/20">
+                        <Send size={16} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -452,23 +439,31 @@ export const IDEWorkspace = ({ projectName, projectId }: IDEWorkspaceProps) => {
         </aside>
       </div>
 
-      {/* --- STATUS FOOTER --- */}
-      <footer className="h-6 bg-[#0d0d1a] border-t border-white/5 px-4 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-        <div className="flex gap-4">
-          <button onClick={() => setIsTerminalOpen(!isTerminalOpen)} className="flex items-center gap-1.5 hover:text-white transition-all"><Terminal size={12} /> Terminal</button>
-          <div className="flex items-center gap-1.5"><GitBranch size={12} /> master*</div>
-          <div className="flex items-center gap-1.5 text-primary"><RefreshCw size={12} className="animate-spin" /> Auto-Sync Active</div>
+      {/* --- FOOTER STATUS BAR --- */}
+      <footer className="h-7 bg-[#0a0a14] border-t border-white/5 px-4 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest z-50">
+        <div className="flex gap-5 items-center">
+          <button onClick={() => setIsTerminalOpen(!isTerminalOpen)} className="flex items-center gap-2 hover:text-white transition-colors group">
+            <Terminal size={14} className="group-hover:text-emerald-500" /> 
+            Terminal
+          </button>
+          <div className="flex items-center gap-2"><GitBranch size={14} /> master*</div>
+          <div className="flex items-center gap-2 text-emerald-500/80 tracking-tighter">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Bogura_Server: 12ms
+          </div>
         </div>
-        <div className="flex gap-4">
-          <span className="text-emerald-500/80">Bogura Node: Active</span>
-          <span className="bg-white/5 px-2 py-0.5 rounded border border-white/5 tracking-tighter">VibeCode v2.1.0</span>
+        <div className="flex gap-4 items-center">
+           <span className="text-slate-600">UTF-8</span>
+           <span className="text-slate-600">TypeScript React</span>
+           <div className="bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20 text-[9px]">VibeCode v2.1.5</div>
         </div>
       </footer>
 
+      {/* Internal Custom Scrollbar Styles */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
