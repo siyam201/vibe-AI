@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -32,6 +32,7 @@ import { GitPanel } from '@/components/git/GitPanel';
 import { useFileOperations, FileOperation } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase'; // Supabase ক্লায়েন্ট ইমপোর্ট নিশ্চিত করুন
 
 interface IDEWorkspaceProps {
   projectName: string;
@@ -39,23 +40,6 @@ interface IDEWorkspaceProps {
   initialPrompt?: string;
   initialMode?: 'chat' | 'plan' | 'test';
 }
-
-// Empty initial files - AI creates files on request
-const initialFiles: FileItem[] = [
-  {
-    id: 'src',
-    name: 'src',
-    type: 'folder',
-    children: [],
-  },
-  { 
-    id: 'readme', 
-    name: 'README.md', 
-    type: 'file', 
-    extension: 'md', 
-    content: '# My Project\n\nAsk AI to create files for you!\n\nExample prompts:\n- "Create a login page"\n- "Create a todo app"\n- "Create index.html with a button"' 
-  },
-];
 
 const getLanguage = (extension?: string) => {
   switch (extension) {
@@ -72,7 +56,6 @@ const getLanguage = (extension?: string) => {
 };
 
 export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMode }: IDEWorkspaceProps) => {
-  // Project history hook
   const {
     projects,
     currentProject,
@@ -83,75 +66,79 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
     duplicateProject,
   } = useProjectHistory();
 
-  // File state - use current project files or defaults
   const [files, setFiles] = useState<FileItem[]>(currentProject?.files || getDefaultFiles());
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([{ id: 'index-html', name: 'index.html', language: 'html' }]);
   const [activeTabId, setActiveTabId] = useState('index-html');
-
-  // Panel state
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalExpanded, setTerminalExpanded] = useState(true);
   const [rightPanel, setRightPanel] = useState<'chat' | 'preview' | 'git'>('chat');
-  const [showGitPanel, setShowGitPanel] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // AI plan -> chat bridge (initialize with initial prompt if provided)
   const [queuedChatMessage, setQueuedChatMessage] = useState<{ id: string; content: string; mode?: string } | null>(
     initialPrompt ? { id: Date.now().toString(), content: initialPrompt, mode: initialMode || 'plan' } : null
   );
 
-  // Modal state
   const [showHistory, setShowHistory] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showPackages, setShowPackages] = useState(false);
   const [showProjectHistory, setShowProjectHistory] = useState(false);
 
-  // File operations hook for AI
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
+  // --- সিয়াম ভাই, এই ফাংশনটি আপনার সব ফাইল ডাটাবেসে পাঠাবে ---
+  const syncToSupabase = useCallback(async (currentFiles: FileItem[]) => {
+    if (!currentProject?.name) return;
+    
+    setIsSyncing(true);
+    try {
+      const fileMap: Record<string, string> = {};
+      const extractFiles = (items: FileItem[]) => {
+        items.forEach(item => {
+          if (item.type === 'file' && item.content !== undefined) {
+            fileMap[item.name] = item.content;
+          }
+          if (item.children) extractFiles(item.children);
+        });
+      };
+      extractFiles(currentFiles);
 
-  // Sync files when current project changes
+      const { error } = await supabase
+        .from('app_previews')
+        .update({ 
+          files: fileMap, // ১৭-১৮টি ফাইল এখানে অবজেক্ট হিসেবে যাবে
+          html_content: fileMap['index.html'] || '',
+          updated_at: new Date().toISOString()
+        })
+        .eq('app_name', currentProject.name);
+
+      if (error) throw error;
+      console.log(`${Object.keys(fileMap).length} files synced to DB`);
+    } catch (err) {
+      console.error('Sync Error:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [currentProject]);
+
   useEffect(() => {
     if (currentProject) {
       setFiles(currentProject.files);
     }
   }, [currentProject]);
 
-  // Auto-save files to current project
+  // অটো-সেভ এবং সুপাবেজ সিঙ্ক লজিক
   useEffect(() => {
     if (currentProject && files !== currentProject.files) {
       const debounce = setTimeout(() => {
         updateProjectFiles(currentProject.id, files);
-      }, 1000);
+        syncToSupabase(files); // ফাইল পরিবর্তনের ১ সেকেন্ড পর ডাটাবেসে সিঙ্ক হবে
+      }, 1500);
       return () => clearTimeout(debounce);
     }
-  }, [files, currentProject, updateProjectFiles]);
+  }, [files, currentProject, updateProjectFiles, syncToSupabase]);
 
-  // Handle creating new project
-  const handleCreateProject = async (name: string, description?: string) => {
-    const newProject = await createProject(name, description);
-    if (newProject) {
-      setFiles(newProject.files);
-      setOpenTabs([{ id: 'readme', name: 'README.md', language: 'markdown' }]);
-      setActiveTabId('readme');
-    }
-    setShowProjectHistory(false);
-  };
-
-  // Handle loading project
-  const handleLoadProject = (projectId: string) => {
-    const project = loadProject(projectId);
-    if (project) {
-      setFiles(project.files);
-      setOpenTabs([{ id: 'readme', name: 'README.md', language: 'markdown' }]);
-      setActiveTabId('readme');
-      setShowProjectHistory(false);
-      toast.success(`Loaded "${project.name}"`);
-    }
-  };
-
-  // Find file by ID recursively
   const findFile = useCallback((items: FileItem[], id: string): FileItem | null => {
     for (const item of items) {
       if (item.id === id) return item;
@@ -163,33 +150,28 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
     return null;
   }, []);
 
-  // Get current file content
   const activeFile = findFile(files, activeTabId);
   const currentContent = activeFile?.content || '';
   const currentLanguage = getLanguage(activeFile?.extension);
 
-  // Update file content
   const updateFileContent = useCallback((fileId: string, content: string) => {
-    const updateRecursive = (items: FileItem[]): FileItem[] => {
-      return items.map(item => {
-        if (item.id === fileId) {
-          return { ...item, content };
-        }
-        if (item.children) {
-          return { ...item, children: updateRecursive(item.children) };
-        }
-        return item;
-      });
-    };
-    setFiles(updateRecursive(files));
-    
-    // Mark tab as dirty
+    setFiles(prevFiles => {
+      const updateRecursive = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
+          if (item.id === fileId) return { ...item, content };
+          if (item.children) return { ...item, children: updateRecursive(item.children) };
+          return item;
+        });
+      };
+      return updateRecursive(prevFiles);
+    });
+
     setOpenTabs(tabs => tabs.map(tab => 
       tab.id === fileId ? { ...tab, isDirty: true } : tab
     ));
-  }, [files]);
+  }, []);
 
-  // File operations
+  // ফাইল এক্সপ্লোরার অপারেশনস
   const handleFileSelect = (file: FileItem) => {
     if (file.type === 'file') {
       const existingTab = openTabs.find(t => t.id === file.id);
@@ -223,22 +205,17 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
       children: type === 'folder' ? [] : undefined,
     };
 
-    if (parentId) {
-      const addToParent = (items: FileItem[]): FileItem[] => {
-        return items.map(item => {
-          if (item.id === parentId && item.children) {
-            return { ...item, children: [...item.children, newFile] };
-          }
-          if (item.children) {
-            return { ...item, children: addToParent(item.children) };
-          }
-          return item;
-        });
-      };
-      setFiles(addToParent(files));
-    } else {
-      setFiles([...files, newFile]);
-    }
+    const updateFiles = (items: FileItem[]): FileItem[] => {
+      if (!parentId) return [...items, newFile];
+      return items.map(item => {
+        if (item.id === parentId && item.children) {
+          return { ...item, children: [...item.children, newFile] };
+        }
+        if (item.children) return { ...item, children: updateFiles(item.children) };
+        return item;
+      });
+    };
+    setFiles(updateFiles(files));
     toast.success(`Created ${name}`);
   };
 
@@ -246,9 +223,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
     const deleteRecursive = (items: FileItem[]): FileItem[] => {
       return items.filter(item => {
         if (item.id === fileId) return false;
-        if (item.children) {
-          item.children = deleteRecursive(item.children);
-        }
+        if (item.children) item.children = deleteRecursive(item.children);
         return true;
       });
     };
@@ -264,92 +239,42 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
           const extension = newName.includes('.') ? newName.split('.').pop() : item.extension;
           return { ...item, name: newName, extension };
         }
-        if (item.children) {
-          return { ...item, children: renameRecursive(item.children) };
-        }
+        if (item.children) return { ...item, children: renameRecursive(item.children) };
         return item;
       });
     };
     setFiles(renameRecursive(files));
-    setOpenTabs(tabs => tabs.map(t => 
-      t.id === fileId ? { ...t, name: newName } : t
-    ));
   };
 
-  // Get HTML/CSS/JS for preview - based on active tab or first available HTML
+  // প্রিভিউ ডাটা জেনারেট করা
   const getPreviewCode = () => {
     let html = '';
-    let css = '';
-    let js = '';
-    const fileMap: { [path: string]: string } = {};
+    const fileMap: Record<string, string> = {};
     const allCss: string[] = [];
     const allJs: string[] = [];
-    const allHtmlFiles: { name: string; content: string; path: string }[] = [];
+    const allHtml: { name: string; content: string }[] = [];
 
-    const findContent = (items: FileItem[], parentPath = '') => {
+    const findContent = (items: FileItem[]) => {
       items.forEach(item => {
-        const currentPath = parentPath ? `${parentPath}/${item.name}` : item.name;
-        
         if (item.type === 'file' && item.content) {
-          // Store all files in the map for resolving links
           fileMap[item.name] = item.content;
-          fileMap[currentPath] = item.content;
-          
-          // Collect all CSS files
-          if (item.extension === 'css') {
-            allCss.push(item.content);
-          }
-          
-          // Collect all JS files
-          if (item.extension === 'js') {
-            allJs.push(item.content);
-          }
-          
-          // Collect all HTML files
-          if (item.extension === 'html') {
-            allHtmlFiles.push({ name: item.name, content: item.content, path: currentPath });
-          }
+          if (item.extension === 'css') allCss.push(item.content);
+          if (item.extension === 'js') allJs.push(item.content);
+          if (item.extension === 'html') allHtml.push({ name: item.name, content: item.content });
         }
-        
-        if (item.children) findContent(item.children, currentPath);
+        if (item.children) findContent(item.children);
       });
     };
     findContent(files);
-    
-    // Determine which HTML to show:
-    // 1. If active tab is an HTML file, show that
-    // 2. Otherwise, prioritize: index.html > login.html > first available HTML
+
     const activeTab = openTabs.find(t => t.id === activeTabId);
-    if (activeTab && activeTab.name.endsWith('.html')) {
-      const matchedHtml = allHtmlFiles.find(h => h.name === activeTab.name || h.path === activeTab.name);
-      if (matchedHtml) {
-        html = matchedHtml.content;
-      }
+    if (activeTab?.name.endsWith('.html')) {
+      html = fileMap[activeTab.name] || '';
+    } else {
+      html = fileMap['index.html'] || (allHtml.length > 0 ? allHtml[0].content : '');
     }
-    
-    if (!html) {
-      // Priority order for HTML files
-      const priorityOrder = ['index.html', 'login.html', 'signup.html', 'dashboard.html'];
-      for (const priority of priorityOrder) {
-        const found = allHtmlFiles.find(h => h.name === priority);
-        if (found) {
-          html = found.content;
-          break;
-        }
-      }
-      // If still no HTML, use first available
-      if (!html && allHtmlFiles.length > 0) {
-        html = allHtmlFiles[0].content;
-      }
-    }
-    
-    // Combine all CSS
-    const combinedCss = allCss.join('\n\n');
-    
-    // Combine all JS
-    const combinedJs = allJs.join('\n\n');
-    
-    return { html, css: combinedCss, js: combinedJs, fileMap };
+
+    return { html, css: allCss.join('\n\n'), js: allJs.join('\n\n'), fileMap };
   };
 
   const { html, css, js, fileMap } = getPreviewCode();
@@ -359,111 +284,42 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
       {/* Top Bar */}
       <div className="h-12 flex items-center justify-between px-4 bg-[#16162a] border-b border-border">
         <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setShowSidebar(!showSidebar)}
-          >
-            {showSidebar ? (
-              <PanelLeftClose className="w-4 h-4" />
-            ) : (
-              <PanelLeftOpen className="w-4 h-4" />
-            )}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowSidebar(!showSidebar)}>
+            {showSidebar ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </Button>
           <Package className="w-4 h-4 text-primary" />
           <span className="font-medium text-foreground">{currentProject?.name || projectName}</span>
+          {isSyncing && <span className="text-[10px] text-green-500 animate-pulse ml-2">Saving...</span>}
         </div>
 
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowProjectHistory(true)}
-          >
-            <FolderOpen className="w-4 h-4" />
-            Projects
+          <Button variant="ghost" size="sm" className="gap-2" onClick={() => setShowProjectHistory(true)}>
+            <FolderOpen className="w-4 h-4" /> Projects
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowTerminal(!showTerminal)}
-          >
-            <Terminal className="w-4 h-4" />
-            Shell
+          <Button variant="ghost" size="sm" className="gap-2" onClick={() => setShowTerminal(!showTerminal)}>
+            <Terminal className="w-4 h-4" /> Shell
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setRightPanel('git')}
-          >
-            <GitBranch className="w-4 h-4" />
-            Git
+          <Button variant="ghost" size="sm" onClick={() => setRightPanel('git')}>
+            <GitBranch className="w-4 h-4" /> Git
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowHistory(true)}
-          >
-            <History className="w-4 h-4" />
-            History
+          <Button variant="ghost" size="sm" onClick={() => setShowHistory(true)}>
+            <History className="w-4 h-4" /> History
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowShare(true)}
-          >
-            <Share2 className="w-4 h-4" />
-            Share
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowSettings(true)}
-          >
-            <Settings className="w-4 h-4" />
-          </Button>
-          <Button 
-            size="sm" 
-            className="gap-2 bg-green-600 hover:bg-green-700 ml-2"
-            onClick={onPublish}
-          >
-            <Play className="w-4 h-4" />
-            Run
+          <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 ml-2" onClick={onPublish}>
+            <Play className="w-4 h-4" /> Run
           </Button>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* File Explorer */}
         {showSidebar && (
           <div className="w-56 flex flex-col border-r border-border bg-[#1a1a2e]">
-            {/* Files Header with Actions */}
             <div className="h-10 flex items-center justify-between px-3 border-b border-border">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Files</span>
+              <span className="text-xs font-medium text-muted-foreground uppercase">Files</span>
               <div className="flex items-center gap-1">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                  onClick={() => toast.success('File saved')}
-                >
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => syncToSupabase(files)}>
                   <Save className="w-3.5 h-3.5" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowPackages(true)}
-                >
-                  <Download className="w-3.5 h-3.5" />
                 </Button>
               </div>
             </div>
@@ -482,165 +338,42 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
 
         {/* Editor Area */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Editor Tabs with Toggle */}
           <div className="flex items-center bg-[#1a1a2e] border-b border-border">
             {openTabs.length > 0 && (
               <div className="flex-1 overflow-x-auto">
-                <EditorTabs
-                  tabs={openTabs}
-                  activeTabId={activeTabId}
-                  onTabSelect={setActiveTabId}
-                  onTabClose={handleTabClose}
-                />
+                <EditorTabs tabs={openTabs} activeTabId={activeTabId} onTabSelect={setActiveTabId} onTabClose={handleTabClose} />
               </div>
             )}
-            {/* Panel Toggle */}
             <div className="flex items-center border-l border-border">
-              <button
-                className={cn(
-                  "px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1.5",
-                  rightPanel === 'chat' 
-                    ? "bg-primary/20 text-primary border-b-2 border-primary" 
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setRightPanel('chat')}
-                title="AI Chat"
-              >
-                <Code2 className="w-4 h-4" />
-                up
-              </button>
-              <button
-                className={cn(
-                  "px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1.5",
-                  rightPanel === 'git' 
-                    ? "bg-primary/20 text-primary border-b-2 border-primary" 
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setRightPanel('git')}
-                title="Git"
-              >
-                <GitBranch className="w-4 h-4" />
-              </button>
-              <button
-                className={cn(
-                  "px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1.5",
-                  rightPanel === 'preview' 
-                    ? "bg-primary/20 text-primary border-b-2 border-primary" 
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setRightPanel('preview')}
-                title="Preview"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
+              <button className={cn("px-3 py-2 text-xs", rightPanel === 'chat' && "bg-primary/20 text-primary")} onClick={() => setRightPanel('chat')}><Code2 className="w-4 h-4" /></button>
+              <button className={cn("px-3 py-2 text-xs", rightPanel === 'preview' && "bg-primary/20 text-primary")} onClick={() => setRightPanel('preview')}><Eye className="w-4 h-4" /></button>
             </div>
           </div>
 
-          {/* Code Editor */}
           <div className="flex-1 min-h-0">
             {activeFile ? (
-              <CodeEditor
-                code={currentContent}
-                language={currentLanguage}
-                onChange={(value) => updateFileContent(activeTabId, value || '')}
-              />
+              <CodeEditor code={currentContent} language={currentLanguage} onChange={(value) => updateFileContent(activeTabId, value || '')} />
             ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground">
-                Select a file to edit
-              </div>
+              <div className="h-full flex items-center justify-center text-muted-foreground">Select a file to edit</div>
             )}
           </div>
-
-          {/* Terminal */}
-          {showTerminal && (
-            <TerminalPanel
-              isExpanded={terminalExpanded}
-              onToggleExpand={() => setTerminalExpanded(!terminalExpanded)}
-              onClose={() => setShowTerminal(false)}
-            />
-          )}
         </div>
 
-        {/* Right Panel Content */}
+        {/* Right Panel */}
         <div className="w-[420px] flex flex-col border-l border-border">
           {rightPanel === 'chat' && (
             <UnifiedAIChatPanel
-              onInsertCode={(code) => {
-                if (activeFile) {
-                  updateFileContent(activeTabId, currentContent + '\n' + code);
-                  toast.success('Code inserted');
-                }
-              }}
-              onFileOperations={(operations: FileOperation[]) => {
-                executeOperations(operations);
-              }}
+              onInsertCode={(code) => activeFile && updateFileContent(activeTabId, currentContent + '\n' + code)}
+              onFileOperations={executeOperations}
               currentFiles={Object.entries(fileMap).map(([path, content]) => ({ path, content }))}
               queuedMessage={queuedChatMessage}
-              onQueuedMessageHandled={(id) => {
-                setQueuedChatMessage((prev) => (prev?.id === id ? null : prev));
-              }}
-              initialMode={initialMode}
+              onQueuedMessageHandled={(id) => setQueuedChatMessage(prev => prev?.id === id ? null : prev)}
             />
           )}
-          {rightPanel === 'preview' && (
-            <PreviewPanel
-              html={html}
-              css={css}
-              js={js}
-              files={fileMap}
-              projectName={currentProject?.name || projectName}
-              onConsoleLog={(log) => console.log(log)}
-            />
-          )}
-          {rightPanel === 'git' && (
-            <GitPanel files={files} projectName={currentProject?.name || projectName} />
-          )}
+          {rightPanel === 'preview' && <PreviewPanel html={html} css={css} js={js} files={fileMap} projectName={projectName} />}
+          {rightPanel === 'git' && <GitPanel files={files} projectName={projectName} />}
         </div>
       </div>
-
-      {/* Modals */}
-      <VersionHistory
-        isOpen={showHistory}
-        onClose={() => setShowHistory(false)}
-        onRollback={(id) => {
-          toast.success('Rolled back to checkpoint');
-          setShowHistory(false);
-        }}
-      />
-      <ShareDialog
-        isOpen={showShare}
-        onClose={() => setShowShare(false)}
-        projectName={projectName}
-        projectUrl={`https://${(() => {
-          const cleanName = projectName
-            .toLowerCase()
-            .trim()
-            .replace(/[^a-z0-9\s-]/g, '')
-            .replace(/\s+/g, '-')
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '');
-          return cleanName || `app-${Date.now().toString(36)}`;
-        })()}.vibecode.app`}
-      />
-      <SettingsPanel
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-      />
-      <PackageManager
-        isOpen={showPackages}
-        onClose={() => setShowPackages(false)}
-      />
-      {showProjectHistory && (
-        <ProjectHistoryPanel
-          projects={projects}
-          currentProjectId={currentProject?.id}
-          onCreateProject={handleCreateProject}
-          onLoadProject={handleLoadProject}
-          onDeleteProject={deleteProject}
-          onDuplicateProject={duplicateProject}
-          onClose={() => setShowProjectHistory(false)}
-        />
-      )}
     </div>
   );
 };
