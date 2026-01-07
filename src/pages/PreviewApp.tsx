@@ -1,15 +1,23 @@
 import { useParams, Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, Code, ExternalLink, RefreshCw, Lock, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ExternalLink, RefreshCw, Lock, ShieldCheck, Rocket, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+
+interface FileMap {
+  [path: string]: string;
+}
 
 const PreviewApp = () => {
   const { appName } = useParams<{ appName: string }>();
   const location = useLocation();
   const [previewCode, setPreviewCode] = useState<string | null>(null);
+  const [projectFiles, setProjectFiles] = useState<FileMap>({});
   const [loading, setLoading] = useState(true);
   const [iframeKey, setIframeKey] = useState(0);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
 
   const currentPath = location.pathname.includes(`/preview/apps/${appName}`) 
     ? location.pathname.split(`${appName}`)[1] || '/' 
@@ -25,7 +33,7 @@ const PreviewApp = () => {
     try {
       const { data, error } = await supabase
         .from('app_previews')
-        .select('html_content')
+        .select('html_content, files')
         .eq('app_name', appName)
         .single();
 
@@ -33,6 +41,13 @@ const PreviewApp = () => {
         console.error('Error loading preview:', error);
       } else if (data) {
         setPreviewCode(data.html_content);
+        // Load files if available
+        if (data.files && typeof data.files === 'object') {
+          setProjectFiles(data.files as FileMap);
+        } else {
+          // Create files from html_content
+          setProjectFiles({ 'index.html': data.html_content });
+        }
         setIframeKey(prev => prev + 1);
       }
     } catch (err) {
@@ -47,7 +62,68 @@ const PreviewApp = () => {
   }, [appName]);
 
   const handleOpenExternal = () => {
-    window.open(window.location.href, '_blank', 'noopener,noreferrer');
+    if (deployedUrl) {
+      window.open(deployedUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      window.open(window.location.href, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleDeployToVercel = async () => {
+    if (!appName) {
+      toast.error('No app name specified');
+      return;
+    }
+
+    const hasFiles = Object.keys(projectFiles).length > 0;
+    const hasHtml = !!previewCode;
+
+    if (!hasFiles && !hasHtml) {
+      toast.error('No content to deploy');
+      return;
+    }
+
+    setIsDeploying(true);
+    try {
+      // Prepare files for deployment
+      const filesToDeploy: FileMap = { ...projectFiles };
+      
+      // If we only have html_content, ensure it's in the files
+      if (!filesToDeploy['index.html'] && previewCode) {
+        filesToDeploy['index.html'] = previewCode;
+      }
+
+      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+        body: {
+          appName: appName,
+          files: filesToDeploy,
+        }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data?.success && data?.url) {
+        setDeployedUrl(data.url);
+        toast.success(`Deployed ${data.filesCount || 1} files to Vercel!`, {
+          description: data.url,
+          action: {
+            label: 'Open',
+            onClick: () => window.open(data.url, '_blank')
+          }
+        });
+      } else {
+        throw new Error(data?.error || 'Deployment failed');
+      }
+    } catch (err: any) {
+      console.error('Vercel deployment error:', err);
+      toast.error('Deployment failed', {
+        description: err.message || 'Please try again'
+      });
+    } finally {
+      setIsDeploying(false);
+    }
   };
 
   // এই ফাংশনটি ৪MD এরর চিরতরে বন্ধ করবে
@@ -117,11 +193,38 @@ const PreviewApp = () => {
           <Button variant="ghost" size="icon" onClick={loadPreview} disabled={loading} className="h-9 w-9">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
+          
+          {/* Deploy to Vercel Button */}
+          <Button 
+            variant="default" 
+            size="sm" 
+            onClick={handleDeployToVercel} 
+            disabled={isDeploying || !previewCode}
+            className="gap-2 bg-gradient-to-r from-primary to-primary/80"
+          >
+            {isDeploying ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="hidden sm:inline">Deploying...</span>
+              </>
+            ) : deployedUrl ? (
+              <>
+                <CheckCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">Deployed</span>
+              </>
+            ) : (
+              <>
+                <Rocket className="w-4 h-4" />
+                <span className="hidden sm:inline">Deploy to Vercel</span>
+              </>
+            )}
+          </Button>
+
           <Button variant="outline" size="sm" onClick={handleOpenExternal} className="hidden sm:flex border-primary/20">
             <ExternalLink className="w-4 h-4 mr-2" />
-            Launch
+            {deployedUrl ? 'Open Live' : 'Launch'}
           </Button>
-          <div className={`w-2.5 h-2.5 rounded-full ${previewCode ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+          <div className={`w-2.5 h-2.5 rounded-full ${deployedUrl ? 'bg-blue-500' : previewCode ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
         </div>
       </header>
 
@@ -138,11 +241,19 @@ const PreviewApp = () => {
       </main>
 
       {/* Status Footer */}
-      <footer className="h-7 bg-muted/50 border-t border-border flex items-center px-4 shrink-0">
+      <footer className="h-7 bg-muted/50 border-t border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-bold tracking-tight">
           <ShieldCheck className="w-3 h-3 text-primary" />
           <span>SECURE PREVIEW ACTIVE • REDIRECTS BLOCKED</span>
         </div>
+        {deployedUrl && (
+          <div className="flex items-center gap-2 text-[10px] text-blue-500 font-bold">
+            <Rocket className="w-3 h-3" />
+            <a href={deployedUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[200px]">
+              {deployedUrl.replace('https://', '')}
+            </a>
+          </div>
+        )}
       </footer>
     </div>
   );
