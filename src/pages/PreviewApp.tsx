@@ -54,53 +54,41 @@ const PreviewApp = () => {
   }, [appName]);
 
   const handleDeployToVercel = async () => {
-    if (!appName) return toast.error('App name missing');
-    
-    setIsDeploying(true);
-    try {
-      // ফিক্স: projectFiles যদি undefined হয় তবে তা সামলানো
-      const safeFiles = projectFiles || {};
-      const filesToSend: FileMap = {};
-      
-      // ফাইলগুলোর পাথ ক্লিন করা (পাথের শুরু থেকে '/' সরানো)
-      Object.entries(safeFiles).forEach(([path, content]) => {
-        if (path && content) {
-          const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-          filesToSend[cleanPath] = content;
-        }
-      });
-      
-      // index.html নিশ্চিত করা
-      if (!filesToSend['index.html'] && previewCode) {
-        filesToSend['index.html'] = previewCode;
-      }
+  if (!appName) return toast.error('App name missing');
+  
+  setIsDeploying(true);
+  try {
+    // সিয়াম ভাই, আমরা নিশ্চিত করছি যে projectFiles খালি থাকলে যেন তা এরর না দেয়
+    const allFiles = projectFiles && Object.keys(projectFiles).length > 0 
+      ? projectFiles 
+      : {};
 
-      console.log("Deploying files:", Object.keys(filesToSend));
-
-      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-        body: { 
-          appName: appName, 
-          files: filesToSend 
-        }
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        setDeployedUrl(data.url);
-        toast.success("ডেপ্লয়মেন্ট সফল হয়েছে!", {
-          description: `মোট ${Object.keys(filesToSend).length} টি ফাইল পাঠানো হয়েছে।`
-        });
-      } else {
-        throw new Error(data?.error || "Deployment failed");
-      }
-    } catch (err: any) {
-      console.error("Deploy error:", err);
-      toast.error("ফাইল পাঠাতে সমস্যা: " + err.message);
-    } finally {
-      setIsDeploying(false);
+    // যদি ডেটাবেসে ফাইলগুলো না থাকে, তবে বর্তমান previewCode কে index.html হিসেবে নিন
+    if (Object.keys(allFiles).length === 0 && previewCode) {
+       allFiles['index.html'] = previewCode;
     }
-  };
+
+    console.log("Total files found for deployment:", Object.keys(allFiles).length);
+
+    const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+      body: { 
+        appName: appName, 
+        files: allFiles // এখানে সব ফাইল যাচ্ছে
+      }
+    });
+
+    if (error) throw error;
+    if (data?.success) {
+      setDeployedUrl(data.url);
+      // এখানে ডাইনামিক মেসেজ দেখাবে কয়টি ফাইল গেল
+      toast.success(`মোট ${Object.keys(allFiles).length} টি ফাইল সফলভাবে পাঠানো হয়েছে!`);
+    }
+  } catch (err: any) {
+    toast.error("Error: " + err.message);
+  } finally {
+    setIsDeploying(false);
+  }
+};
 
   return (
     <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
