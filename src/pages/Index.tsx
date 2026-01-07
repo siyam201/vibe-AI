@@ -26,7 +26,10 @@ const Index = () => {
     const saved = localStorage.getItem('sidebar-collapsed');
     return saved === 'true';
   });
-const { createProject, currentProject } = useProjectHistory();
+
+  // ১. প্রজেক্ট হিস্ট্রি থেকে ডাটা নেয়া (একবারই ডিক্লেয়ার করা হয়েছে)
+  const { createProject, currentProject } = useProjectHistory();
+
   // Persist sidebar state
   const handleToggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -67,17 +70,12 @@ const { createProject, currentProject } = useProjectHistory();
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Project history
-  const { createProject } = useProjectHistory();
-
   // Create app from prompt
   const handleCreateApp = async (idea: string, type: 'app' | 'design', projectInfo?: { name: string; type: string; mode: string }) => {
-    // Create a new project with auto-generated name or custom name
     const name = projectInfo?.name || idea.split(' ').slice(0, 3).join('-') || 'My-App';
     const project = await createProject(name);
     if (project) {
       setProjectName(project.name);
-      // Set the initial prompt to send to Plan mode
       setInitialPrompt(`Create a ${projectInfo?.type || 'web'} app: ${idea}`);
       setActiveNav('apps');
       setView('editor');
@@ -130,7 +128,6 @@ const { createProject, currentProject } = useProjectHistory();
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-background">
-      {/* Sidebar */}
       <ReplitSidebar 
         activeNav={activeNav}
         onNavChange={handleNavChange}
@@ -144,7 +141,6 @@ const { createProject, currentProject } = useProjectHistory();
         onToggleCollapse={handleToggleSidebar}
       />
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {view === 'home' && (
           <CreateAppPrompt 
@@ -163,7 +159,6 @@ const { createProject, currentProject } = useProjectHistory();
         )}
 
         {view === 'learn' && <LearnPage />}
-
         {view === 'docs' && <DocsPage />}
 
         {view === 'apps' && (
@@ -185,7 +180,6 @@ const { createProject, currentProject } = useProjectHistory();
         )}
       </div>
 
-      {/* Modals */}
       <CommandPalette 
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
@@ -195,12 +189,14 @@ const { createProject, currentProject } = useProjectHistory();
         isOpen={showPricing}
         onClose={() => setShowPricing(false)}
       />
+      
+      {/* ২. ডিপ্লয় প্যানেলে ডাটা পাঠানো হচ্ছে */}
       <DeployPanel
-  isOpen={showDeploy}
-  onClose={() => setShowDeploy(false)}
-  projectName={projectName}
-  projectFiles={currentProject?.files || []} // এই লাইনটি অবশ্যই যোগ করতে হবে
-     />
+        isOpen={showDeploy}
+        onClose={() => setShowDeploy(false)}
+        projectName={projectName}
+        projectFiles={currentProject?.files || []} 
+      />
     </div>
   );
 };
