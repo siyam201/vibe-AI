@@ -24,25 +24,24 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
 
   if (!isOpen) return null;
 
-  const handleDeploy = async () => {
-    setStatus('deploying');
-    setErrorMessage('');
+ const handleDeployToVercel = async () => {
+  if (!appName) return toast.error('App name missing');
+  
+  setIsDeploying(true);
+  try {
+    const filesToDeploy: FileMap = {};
     
-    try {
-      // ১. ফাইলগুলো ক্লিন করা (পাথের শুরু থেকে '/' বাদ দেওয়া)
-      const cleanedFiles: Record<string, string> = {};
-      Object.entries(projectFiles).forEach(([path, content]) => {
-        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-        cleanedFiles[cleanPath] = content;
-      });
+    // Safety Check: projectFiles যদি null হয় তবে খালি অবজেক্ট নিবে
+    const safeFiles = projectFiles || {}; 
 
-      // ২. Supabase Edge Function কল করা
-      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-        body: { 
-          appName: projectName, 
-          files: cleanedFiles 
-        }
-      });
+    Object.entries(safeFiles).forEach(([path, content]) => {
+      if (path && content) { // নিশ্চিত হওয়া যে পাথ ও কন্টেন্ট আছে
+        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+        filesToDeploy[cleanPath] = content;
+      }
+    });
+
+    // বাকি কোড...
 
       if (error) throw error;
 
