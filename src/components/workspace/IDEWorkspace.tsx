@@ -79,28 +79,41 @@ export const IDEWorkspace = ({ projectName, onPublish, initialPrompt, initialMod
   const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
   // --- Project Sync Logic ---
-  useEffect(() => {
-    const syncWithURL = async () => {
-      if (projectName && projects.length > 0) {
-        const decodedName = decodeURIComponent(projectName);
-        const target = projects.find(p => p.name === decodedName);
-        if (target && currentProject?.id !== target.id) {
-          setIsSyncing(true);
-          await loadProject(target.id);
-          setIsSyncing(false);
-        } else if (target) {
-          setIsSyncing(false);
-        }
-      }
-    };
-    syncWithURL();
-  }, [projectName, projects, loadProject, currentProject?.id]);
+ useEffect(() => {
+  // ১. যদি কোনো প্রোজেক্ট লোড না থাকে বা ফাইল না থাকে তবে সেভ হবে না
+  if (!currentProject?.id || files.length === 0) return;
 
-  useEffect(() => {
-    if (currentProject?.files) {
-      setFiles(currentProject.files);
+  const performSave = async () => {
+    try {
+      setSaveStatus('saving'); // সেভ শুরু
+      
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          files: files as any, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', currentProject.id);
+
+      if (error) {
+        console.error("Save error:", error);
+        setSaveStatus('error');
+        toast.error("সেভ হতে সমস্যা হয়েছে!");
+      } else {
+        // প্রোজেক্ট হিস্ট্রি হুক আপডেট করা
+        updateProjectFiles(currentProject.id, files);
+        setSaveStatus('saved');
+      }
+    } catch (err) {
+      setSaveStatus('error');
     }
-  }, [currentProject]);
+  };
+
+  // ২. টাইপিং থামালে ২ সেকেন্ড পর সেভ হবে (Debounce)
+  const debounce = setTimeout(performSave, 2000);
+  
+  return () => clearTimeout(debounce);
+}, [files, currentProject?.id]);
 
   // --- File & Tab Operations ---
   const handleTabClose = useCallback((tabId: string) => {
