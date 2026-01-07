@@ -57,35 +57,35 @@ const PreviewApp = () => {
     loadPreview();
   }, [appName]);
 
-  const handleDeployToVercel = async () => {
+  // PreviewApp.tsx এর handleDeployToVercel ফাংশনটি এভাবে পরিবর্তন করুন
+const handleDeployToVercel = async () => {
   if (!appName) return toast.error('App name missing');
   
   setIsDeploying(true);
   try {
-    // সিয়াম ভাই, আমরা নিশ্চিত করছি যে projectFiles খালি থাকলে যেন তা এরর না দেয়
-    const allFiles = projectFiles && Object.keys(projectFiles).length > 0 
-      ? projectFiles 
-      : {};
+    // সিয়াম ভাই, আপনার ১৭-১৮টি ফাইল এই অবজেক্টে থাকতে হবে
+    // স্ক্রিনশট ২৪৯ অনুযায়ী ডাটাবেস থেকে বর্তমানে এটি {} আসছে
+    let filesToSend = { ...projectFiles }; 
 
-    // যদি ডেটাবেসে ফাইলগুলো না থাকে, তবে বর্তমান previewCode কে index.html হিসেবে নিন
-    if (Object.keys(allFiles).length === 0 && previewCode) {
-       allFiles['index.html'] = previewCode;
+    // যদি projectFiles খালি থাকে, তবে বুঝবেন ডাটাবেসে ফাইল সেভ হয়নি
+    if (Object.keys(filesToSend).length === 0) {
+      console.log("সতর্কতা: ডাটাবেসের files কলাম খালি! শুধু index.html পাঠানো হচ্ছে।");
+      if (previewCode) {
+        filesToSend = { 'index.html': previewCode };
+      }
     }
-
-    console.log("Total files found for deployment:", Object.keys(allFiles).length);
 
     const { data, error } = await supabase.functions.invoke('vercel-deploy', {
       body: { 
         appName: appName, 
-        files: allFiles // এখানে সব ফাইল যাচ্ছে
+        files: filesToSend 
       }
     });
 
     if (error) throw error;
     if (data?.success) {
       setDeployedUrl(data.url);
-      // এখানে ডাইনামিক মেসেজ দেখাবে কয়টি ফাইল গেল
-      toast.success(`মোট ${Object.keys(allFiles).length} টি ফাইল সফলভাবে পাঠানো হয়েছে!`);
+      toast.success(`ডেপ্লয়মেন্ট সফল! মোট ${Object.keys(filesToSend).length} টি ফাইল পাঠানো হয়েছে।`);
     }
   } catch (err: any) {
     toast.error("Error: " + err.message);
@@ -93,6 +93,7 @@ const PreviewApp = () => {
     setIsDeploying(false);
   }
 };
+
 
   return (
     <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
