@@ -10,6 +10,7 @@ export const routes = {
   preview: "/preview",
   sandbox: "/sandbox",
   authTest: "/auth-test",
+  project: "/pro/:projectId",
 } as const;
 
 export type RoutePath = (typeof routes)[keyof typeof routes];
