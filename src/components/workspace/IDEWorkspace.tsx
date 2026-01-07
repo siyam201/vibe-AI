@@ -32,7 +32,8 @@ import { GitPanel } from '@/components/git/GitPanel';
 import { useFileOperations, FileOperation } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase'; // সিয়াম ভাই, এই ইমপোর্টটি নিশ্চিত করুন
+// সিয়াম ভাই, আপনার GitHub পাথ অনুযায়ী ইমপোর্ট
+import { supabase } from '@/integrations/supabase/client'; // সিয়াম ভাই, এই ইমপোর্টটি নিশ্চিত করুন
 
 interface IDEWorkspaceProps {
   projectName: string;
