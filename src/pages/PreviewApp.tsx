@@ -44,41 +44,38 @@ const PreviewApp = () => {
   useEffect(() => { loadPreview(); }, [appName]);
 
   const handleDeployToVercel = async () => {
-    if (!appName) return toast.error('App name missing');
-    setIsDeploying(true);
+  if (!appName) return toast.error('App name missing');
+  
+  setIsDeploying(true);
+  try {
+    // সিয়াম ভাই, এখানে আমরা নিশ্চিত করছি যে সব ফাইল একসাথে যাচ্ছে
+    const filesToSend = { ...projectFiles };
     
-    try {
-      // ১. ফাইল পাথের শুরু থেকে '/' সরিয়ে ক্লিন করা (Vercel Fix)
-      const cleanedFiles: FileMap = {};
-      Object.entries(projectFiles).forEach(([path, content]) => {
-        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-        cleanedFiles[cleanPath] = content;
-      });
-
-      // ২. index.html নিশ্চিত করা
-      if (!cleanedFiles['index.html'] && previewCode) {
-        cleanedFiles['index.html'] = previewCode;
-      }
-
-      // ৩. এজ ফাংশন কল
-      const { data, error } = await supabase.functions.invoke('vercel-deploy', {
-        body: { appName, files: cleanedFiles }
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        setDeployedUrl(data.url);
-        toast.success("ডেপ্লয়মেন্ট সফল হয়েছে!", { description: data.url });
-      } else {
-        throw new Error(data?.error || "Deployment failed");
-      }
-    } catch (err: any) {
-      toast.error("ফাইল পাঠাতে সমস্যা হয়েছে", { description: err.message });
-    } finally {
-      setIsDeploying(false);
+    // index.html না থাকলে তা যোগ করা
+    if (!filesToSend['index.html'] && previewCode) {
+      filesToSend['index.html'] = previewCode;
     }
-  };
+
+    console.log("Sending files to Vercel:", Object.keys(filesToSend)); // এটি কনসোলে চেক করবেন
+
+    const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+      body: { 
+        appName: appName, 
+        files: filesToSend // সব ফাইল এখানে অবজেক্ট হিসেবে যাবে
+      }
+    });
+
+    if (error) throw error;
+    if (data?.success) {
+      setDeployedUrl(data.url);
+      toast.success("সব ফাইল ঠিকমতো পাঠানো হয়েছে!");
+    }
+  } catch (err) {
+    toast.error("Error: " + err.message);
+  } finally {
+    setIsDeploying(false);
+  }
+};
 
   return (
     <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
