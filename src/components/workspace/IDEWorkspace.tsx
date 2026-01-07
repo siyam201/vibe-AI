@@ -16,7 +16,7 @@ import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory, getDefaultFiles } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../../integrations/supabase/client';
 
 // --- Types ---
 interface IDEWorkspaceProps {
