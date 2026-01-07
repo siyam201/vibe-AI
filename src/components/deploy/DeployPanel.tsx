@@ -11,7 +11,7 @@ interface DeployPanelProps {
   isOpen: boolean;
   onClose: () => void;
   projectName: string;
-  projectFiles: Record<string, string> | null | undefined; // Null safe করা হলো
+  projectFiles: any[] | Record<string, string> | null | undefined;
 }
 
 type DeployStatus = 'idle' | 'deploying' | 'success' | 'error';
@@ -24,27 +24,48 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
 
   if (!isOpen) return null;
 
+  // ফাইলগুলোকে ফ্ল্যাট অবজেক্টে রূপান্তর করার ফাংশন (Recursive)
+  const flattenFiles = (items: any[], path = ''): Record<string, string> => {
+    let flatFiles: Record<string, string> = {};
+
+    items.forEach(item => {
+      const currentPath = path ? `${path}/${item.name}` : item.name;
+      
+      if (item.type === 'file' && item.content !== undefined) {
+        flatFiles[currentPath] = item.content;
+      } else if (item.type === 'folder' && item.children) {
+        // ফোল্ডারের ভেতর আবার চেক করবে
+        Object.assign(flatFiles, flattenFiles(item.children, currentPath));
+      }
+    });
+
+    return flatFiles;
+  };
+
   const handleDeploy = async () => {
-    // প্রজেক্টের নাম বা ফাইল না থাকলে ডেপ্লয় হবে না
     if (!projectName) return toast.error('Project name missing');
     
     setStatus('deploying');
     setErrorMessage('');
     
     try {
-      const filesToDeploy: Record<string, string> = {};
-      
-      // Safety Check: projectFiles যদি null/undefined হয় তবে খালি অবজেক্ট ব্যবহার হবে
-      const safeFiles = projectFiles ?? {};
+      let filesToDeploy: Record<string, string> = {};
 
-      Object.entries(safeFiles).forEach(([path, content]) => {
-        if (path && content) {
-          const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-          filesToDeploy[cleanPath] = content;
-        }
-      });
+      // ডাটা টাইপ চেক করে প্রসেসিং
+      if (Array.isArray(projectFiles)) {
+        filesToDeploy = flattenFiles(projectFiles);
+      } else if (projectFiles && typeof projectFiles === 'object') {
+        filesToDeploy = projectFiles as Record<string, string>;
+      }
 
-      // সুপাবেজ এজ ফাংশন কল
+      const fileCount = Object.keys(filesToDeploy).length;
+      console.log("Files being deployed:", filesToDeploy);
+
+      if (fileCount === 0) {
+        throw new Error("আপনার প্রজেক্টে কোনো ফাইল পাওয়া যায়নি। দয়া করে কোড লিখে সেভ করুন।");
+      }
+
+      // সুপাবেজ এজ ফাংশন ইনভোক
       const { data, error } = await supabase.functions.invoke('vercel-deploy', {
         body: { 
           appName: projectName, 
@@ -76,6 +97,11 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // UI-তে দেখানোর জন্য ফাইল সংখ্যা বের করা
+  const displayFileCount = Array.isArray(projectFiles) 
+    ? Object.keys(flattenFiles(projectFiles)).length 
+    : Object.keys(projectFiles ?? {}).length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -102,7 +128,7 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
               <div>
                 <h3 className="text-lg font-semibold text-white">Ready to Go Live?</h3>
                 <p className="text-sm text-slate-400">
-                  Your project "{projectName}" with {Object.keys(projectFiles ?? {}).length} files is ready.
+                  Your project "{projectName}" with <span className="text-orange-400 font-bold">{displayFileCount}</span> files is ready.
                 </p>
               </div>
             </div>
@@ -111,9 +137,9 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'deploying' && (
             <div className="text-center space-y-4 py-4">
               <Loader2 className="w-12 h-12 mx-auto text-orange-500 animate-spin" />
-              <h3 className="text-lg font-semibold text-white">Deploying...</h3>
-              <p className="text-sm text-slate-400 italic">
-                আপনার পিসিতে প্রোসেসিং হতে কিছুটা সময় লাগতে পারে।
+              <h3 className="text-lg font-semibold text-white">Deploying to Cloud...</h3>
+              <p className="text-xs text-slate-400 px-4">
+                বগুড়া সার্ভার ভিউ ২.১ প্রসেসিং হচ্ছে। দয়া করে কিছুক্ষণ অপেক্ষা করুন।
               </p>
             </div>
           )}
@@ -134,8 +160,8 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
           {status === 'error' && (
             <div className="text-center space-y-4">
               <AlertCircle className="w-16 h-16 mx-auto text-red-500" />
-              <h3 className="text-lg font-semibold text-red-500">Error</h3>
-              <p className="text-sm text-slate-400 bg-red-500/10 p-2 rounded border border-red-500/20">
+              <h3 className="text-lg font-semibold text-red-500">Deployment Error</h3>
+              <p className="text-sm text-slate-400 bg-red-500/10 p-3 rounded border border-red-500/20">
                 {errorMessage}
               </p>
             </div>
@@ -148,13 +174,13 @@ export const DeployPanel = ({ isOpen, onClose, projectName, projectFiles }: Depl
             <Button variant="outline" onClick={onClose} className="border-slate-700 text-slate-300 hover:bg-slate-800">Close</Button>
           )}
           {status === 'idle' && (
-            <Button onClick={handleDeploy} className="bg-orange-600 hover:bg-orange-700 text-white">
+            <Button onClick={handleDeploy} className="bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-900/20">
               Confirm & Deploy
             </Button>
           )}
           {status === 'success' && (
             <Button onClick={() => window.open(deployUrl, '_blank')} className="bg-orange-600 hover:bg-orange-700 text-white gap-2">
-              <ExternalLink className="w-4 h-4" /> Open App
+              <ExternalLink className="w-4 h-4" /> Open Live App
             </Button>
           )}
           {status === 'error' && (
