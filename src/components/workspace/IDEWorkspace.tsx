@@ -2,7 +2,8 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   PanelLeftClose, PanelLeftOpen, Play, Share2, Settings, History,
   Terminal, Eye, Code2, Package, Save, Download, FolderOpen, GitBranch,
-  CloudCheck, CloudOff, Loader2, Plus, X, Trash2, Edit3, ChevronRight,
+  // CloudCheck এর বদলে নিচে Cloud এবং Check ব্যবহার করা হয়েছে
+  Cloud, Check, CloudOff, Loader2, Plus, X, Trash2, Edit3, ChevronRight,
   ChevronDown, Search, FileCode, FolderPlus, FilePlus, Copy, Github
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
