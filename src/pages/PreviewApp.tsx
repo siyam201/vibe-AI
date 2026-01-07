@@ -69,19 +69,30 @@ const PreviewApp = () => {
     }
   };
 
-  const handleDeployToVercel = async () => {
-    if (!appName) {
-      toast.error('No app name specified');
-      return;
+ const handleDeployToVercel = async () => {
+  // ... (বাকি কোড ঠিক আছে)
+  try {
+    const filesToDeploy = { ...projectFiles };
+    
+    // যদি index.html না থাকে তবে previewCode থেকে নিয়ে নিন
+    if (!filesToDeploy['index.html'] && previewCode) {
+      filesToDeploy['index.html'] = previewCode;
     }
 
-    const hasFiles = Object.keys(projectFiles).length > 0;
-    const hasHtml = !!previewCode;
+    // Invoke the function
+    const { data, error } = await supabase.functions.invoke('vercel-deploy', {
+      body: {
+        appName: appName,
+        files: filesToDeploy, // এখানে আমরা অবজেক্ট পাঠাচ্ছি { 'index.html': '...' }
+      }
+    });
 
-    if (!hasFiles && !hasHtml) {
-      toast.error('No content to deploy');
-      return;
-    }
+    if (error) throw error;
+    // ... (সফল হওয়ার মেসেজ)
+  } catch (err) {
+    // ... (এরর হ্যান্ডলিং)
+  }
+};
 
     setIsDeploying(true);
     try {
