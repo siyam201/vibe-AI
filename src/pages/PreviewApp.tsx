@@ -19,35 +19,39 @@ const PreviewApp = () => {
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
 
   const loadPreview = async () => {
-    if (!appName) return;
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('app_previews')
-        .select('html_content, files')
-        .eq('app_name', appName)
-        .single();
+  if (!appName) return;
+  setLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('app_previews')
+      .select('*') // সব কলাম সিলেক্ট করুন
+      .eq('app_name', appName)
+      .single();
 
-      if (error) throw error;
+    if (error) throw error;
 
-      if (data) {
-        setPreviewCode(data.html_content);
-        
-        // ফিক্স: যদি files null হয় তবে খালি অবজেক্ট সেট করবে
-        const loadedFiles = data.files && typeof data.files === 'object' 
-          ? (data.files as FileMap) 
-          : {};
-          
+    if (data) {
+      setPreviewCode(data.html_content);
+      
+      // গুরুত্বপূর্ণ: ডাটাবেসে files কলামে যা আছে তা সরাসরি সেট করুন
+      const loadedFiles = data.files || {}; 
+      
+      // যদি files খালি থাকে কিন্তু html_content থাকে, তবে অন্তত index.html তৈরি করুন
+      if (Object.keys(loadedFiles).length === 0 && data.html_content) {
+        setProjectFiles({ 'index.html': data.html_content });
+      } else {
         setProjectFiles(loadedFiles);
-        setIframeKey(prev => prev + 1);
       }
-    } catch (err: any) {
-      console.error('Error:', err);
-      toast.error("ডাটা লোড করতে সমস্যা হয়েছে");
-    } finally {
-      setLoading(false);
+      
+      setIframeKey(prev => prev + 1);
+      console.log("Database থেকে প্রাপ্ত মোট ফাইল:", Object.keys(loadedFiles).length);
     }
-  };
+  } catch (err) {
+    console.error('Error loading preview:', err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     loadPreview();
