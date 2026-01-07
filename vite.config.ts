@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
       'vibe-ai-fpng.onrender.com', // Specific host
       '.example.com',    // Wildcard for example.com and all subdomains
       'frontend_web'     // Hostname in a Docker environment, for instance
-    ]
+    ],
     // Cross-Origin Isolation headers for WebContainer support
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
