@@ -40,7 +40,7 @@ export const ChatHistorySidebar = ({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const filteredConversations = conversations.filter(conv =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
+    (conv.title || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const formatDate = (dateString: string) => {

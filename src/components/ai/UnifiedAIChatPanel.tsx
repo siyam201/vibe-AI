@@ -662,8 +662,8 @@ export const UnifiedAIChatPanel = ({
     }
   };
 
-  const getActionIcon = (action: string) => {
-    switch (action.toLowerCase()) {
+  const getActionIcon = (action?: string) => {
+    switch ((action || 'edit').toLowerCase()) {
       case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
       case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
       case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;

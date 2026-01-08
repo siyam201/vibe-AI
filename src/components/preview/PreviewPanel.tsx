@@ -43,7 +43,8 @@ export const PreviewPanel = ({ html, css, js, files = {}, projectName = 'my-app'
   const [isDeploying, setIsDeploying] = useState(false);
 
   // Generate URL-safe project name
-  const generateSafeUrl = (name: string): string => {
+  const generateSafeUrl = (name?: string): string => {
+    if (!name) return `app-${Date.now().toString(36)}`;
     const cleanName = name
       .toLowerCase()
       .trim()
