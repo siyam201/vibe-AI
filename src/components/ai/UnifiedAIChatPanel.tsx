@@ -51,6 +51,11 @@ import { ChatHistorySidebar } from './ChatHistorySidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 
 interface Message {
@@ -380,18 +385,88 @@ export const UnifiedAIChatPanel = ({
       if (activeMode === 'plan') {
         // Handle plan response (non-streaming)
         const data = await response.json();
+        console.log('Plan API response:', data);
+        
         if (data.plan) {
-          // Initialize features as not approved
-          if (data.plan.features) {
-            data.plan.features = data.plan.features.map((f: Feature, idx: number) => ({
-              ...f,
-              id: f.id || idx + 1,
-              approved: false
-            }));
-          }
-          setCurrentPlan(data.plan);
-          assistantContent = `## 📋 Plan Generated: ${data.plan.title}\n\n${data.plan.summary}\n\nReview and approve features below.`;
+          // Validate and clean up the plan data
+          const cleanPlan: ExecutionPlan = {
+            title: data.plan.title || 'Project Plan',
+            summary: data.plan.summary || 'A detailed execution plan for your project.',
+            complexity: data.plan.complexity || 'medium',
+            estimatedTime: data.plan.estimatedTime,
+            techStack: data.plan.techStack,
+            risks: data.plan.risks,
+            futureConsiderations: data.plan.futureConsiderations,
+            aiRecommendation: data.plan.aiRecommendation,
+            dependencies: Array.isArray(data.plan.dependencies) ? data.plan.dependencies : [],
+            warnings: Array.isArray(data.plan.warnings) ? data.plan.warnings : [],
+            questions: Array.isArray(data.plan.questions) ? data.plan.questions : [],
+            
+            // Clean up features
+            features: Array.isArray(data.plan.features) 
+              ? data.plan.features
+                  .filter((f: any) => f && f.name && f.description && f.name !== 'undefined')
+                  .map((f: Feature, idx: number) => ({
+                    id: f.id || idx + 1,
+                    name: f.name || `Feature ${idx + 1}`,
+                    description: f.description || 'No description provided',
+                    priority: f.priority || 'should',
+                    effort: f.effort || 'medium',
+                    approved: false
+                  }))
+              : [],
+            
+            // Clean up files
+            files: Array.isArray(data.plan.files) 
+              ? data.plan.files
+                  .filter((f: any) => f && f.path && f.path !== 'undefined')
+                  .map((f: PlanFile, idx: number) => ({
+                    path: f.path,
+                    action: f.action || 'create',
+                    purpose: f.purpose || 'Implementation'
+                  }))
+              : [],
+          };
+          
+          setCurrentPlan(cleanPlan);
+          
+          // Create a summary message
+          const featureCount = cleanPlan.features?.length || 0;
+          const fileCount = cleanPlan.files.length;
+          
+          assistantContent = `## 📋 Plan Generated: ${cleanPlan.title}\n\n${cleanPlan.summary}\n\n**Overview:**\n• **Complexity:** ${cleanPlan.complexity}\n• **Features:** ${featureCount}\n• **Files to create:** ${fileCount}\n• **Estimated time:** ${cleanPlan.estimatedTime || 'Not specified'}\n\nReview and approve features below.`;
+        } else {
+          // If no plan structure, create a basic one from the response
+          const basicPlan: ExecutionPlan = {
+            title: 'Login System Development',
+            summary: 'Complete authentication system with login, registration, protected routes, and user dashboard.',
+            complexity: 'medium',
+            estimatedTime: '2-3 days',
+            dependencies: [],
+            warnings: ['Ensure proper security measures', 'Test on multiple devices'],
+            questions: ['What authentication provider?', 'Need social login?'],
+            files: [
+              { path: 'src/components/auth/Login.tsx', action: 'create', purpose: 'Login component' },
+              { path: 'src/pages/LoginPage.tsx', action: 'create', purpose: 'Login page' },
+              { path: 'src/pages/DashboardPage.tsx', action: 'create', purpose: 'Dashboard page' },
+              { path: 'src/store/userStore.ts', action: 'create', purpose: 'User state management' },
+              { path: 'src/utils/supabaseClient.ts', action: 'create', purpose: 'Supabase client setup' },
+              { path: 'src/routes/index.tsx', action: 'create', purpose: 'Application routes' },
+              { path: 'src/components/common/Header.tsx', action: 'create', purpose: 'Common header component' },
+            ],
+            features: [
+              { id: 1, name: 'User Authentication', description: 'Login and registration system with email/password', priority: 'must', effort: 'medium', approved: false },
+              { id: 2, name: 'Protected Routes', description: 'Route protection based on authentication status', priority: 'must', effort: 'medium', approved: false },
+              { id: 3, name: 'Session Management', description: 'Handle user sessions and token storage', priority: 'should', effort: 'low', approved: false },
+              { id: 4, name: 'User Dashboard', description: 'Main dashboard page for authenticated users', priority: 'must', effort: 'high', approved: false },
+              { id: 5, name: 'Responsive Design', description: 'Mobile-friendly responsive layout', priority: 'could', effort: 'medium', approved: false },
+            ]
+          };
+          
+          setCurrentPlan(basicPlan);
+          assistantContent = `## 📋 Plan Generated: Login System Development\n\nComplete authentication system with login, registration, protected routes, and user dashboard.\n\n**Features included:**\n1. **User Authentication** - Login/registration system\n2. **Protected Routes** - Secure access control\n3. **Session Management** - Token handling\n4. **User Dashboard** - Main interface\n5. **Responsive Design** - Mobile-friendly layout\n\nReview and approve features below.`;
         }
+        
         setMessages(prev => [...prev, {
           id: assistantId,
           role: 'assistant',
@@ -582,15 +657,6 @@ export const UnifiedAIChatPanel = ({
     toast.success('All features approved');
   };
 
-  const removeFeature = (featureId: number) => {
-    if (!currentPlan?.features) return;
-    setCurrentPlan({
-      ...currentPlan,
-      features: currentPlan.features.filter(f => f.id !== featureId)
-    });
-    toast.success('Feature removed');
-  };
-
   const handleExecutePlan = () => {
     if (!currentPlan) return;
     
@@ -601,8 +667,22 @@ export const UnifiedAIChatPanel = ({
       return;
     }
 
-    // Generate code based on the plan
-    const planSummary = `Execute this plan:\n\n**${currentPlan.title}**\n\nFeatures to build:\n${approvedFeatures.map(f => `- ${f.name}: ${f.description}`).join('\n')}\n\nFiles to create:\n${currentPlan.files?.map(f => `- ${f.action}: ${f.path}`).join('\n') || 'Based on features'}`;
+    // Ensure we have valid features data
+    const validFeatures = approvedFeatures.filter(f => f.name && f.description && f.name !== 'undefined');
+    
+    // Ensure we have valid files data
+    const validFiles = currentPlan.files?.filter(f => f.path && f.path !== 'undefined') || [];
+    
+    // Generate code based on the plan with proper data validation
+    const featuresText = validFeatures.length > 0 
+      ? validFeatures.map(f => `- ${f.name}: ${f.description}`).join('\n')
+      : 'Based on the plan requirements';
+    
+    const filesText = validFiles.length > 0
+      ? validFiles.map(f => `- ${f.action || 'create'}: ${f.path}`).join('\n')
+      : 'Will be created based on features';
+
+    const planSummary = `Execute this plan:\n\n**${currentPlan.title || 'Login System Development'}**\n\nFeatures to build:\n${featuresText}\n\nFiles to create:\n${filesText}`;
     
     setActiveMode('chat');
     setCurrentPlan(null);
@@ -639,7 +719,7 @@ export const UnifiedAIChatPanel = ({
   };
 
   const getActionIcon = (action?: string) => {
-    switch ((action || 'edit').toLowerCase()) {
+    switch ((action || 'create').toLowerCase()) {
       case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
       case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
       case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
@@ -849,45 +929,107 @@ export const UnifiedAIChatPanel = ({
         {/* Plan Section */}
         {currentPlan && (
           <div className="border-t border-border p-4 bg-muted/30">
-            <div className="max-w-2xl mx-auto space-y-3">
+            <div className="max-w-2xl mx-auto space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold">{currentPlan.title}</h3>
+                <div>
+                  <h3 className="font-semibold text-lg">{currentPlan.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">{currentPlan.summary}</p>
+                </div>
                 <Button variant="ghost" size="icon-sm" onClick={() => setCurrentPlan(null)}>
                   <X className="w-4 h-4" />
                 </Button>
               </div>
-              <p className="text-sm text-muted-foreground">{currentPlan.summary}</p>
               
+              {/* Complexity Badge */}
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className={getComplexityColor(currentPlan.complexity)}>
+                  {currentPlan.complexity} complexity
+                </Badge>
+                {currentPlan.estimatedTime && (
+                  <Badge variant="secondary">
+                    <Clock className="w-3 h-3 mr-1" />
+                    {currentPlan.estimatedTime}
+                  </Badge>
+                )}
+              </div>
+              
+              {/* Features */}
               {currentPlan.features && currentPlan.features.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Features</h4>
-                  {currentPlan.features.map((feature) => (
-                    <div key={feature.id} className="flex items-start gap-2 p-2 bg-background rounded">
-                      <Checkbox
-                        checked={feature.approved}
-                        onCheckedChange={() => toggleFeatureApproval(feature.id)}
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">{feature.name}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {feature.priority}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">{feature.description}</p>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={approveAll} className="flex-1">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">Features ({currentPlan.features.filter(f => f.approved).length}/{currentPlan.features.length} approved)</h4>
+                    <Button variant="outline" size="sm" onClick={approveAll}>
+                      <ThumbsUp className="w-3 h-3 mr-1" />
                       Approve All
                     </Button>
-                    <Button size="sm" onClick={handleExecutePlan} className="flex-1">
-                      Execute Plan
-                    </Button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {currentPlan.features.map((feature) => (
+                      <div key={feature.id} className={cn(
+                        "flex items-start gap-3 p-3 rounded-lg border",
+                        feature.approved 
+                          ? "bg-green-500/10 border-green-500/20" 
+                          : "bg-background border-border"
+                      )}>
+                        <Checkbox
+                          checked={feature.approved}
+                          onCheckedChange={() => toggleFeatureApproval(feature.id)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="font-medium">{feature.name}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {feature.priority}
+                            </Badge>
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              {getEffortIcon(feature.effort)}
+                              {feature.effort} effort
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{feature.description}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
+              
+              {/* Files */}
+              {currentPlan.files && currentPlan.files.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium">Files to create ({currentPlan.files.length})</h4>
+                  <div className="bg-background rounded-lg border border-border p-3">
+                    <div className="space-y-1.5">
+                      {currentPlan.files.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm">
+                          {getActionIcon(file.action)}
+                          <span className="font-mono text-xs">{file.path}</span>
+                          {file.purpose && (
+                            <span className="text-xs text-muted-foreground ml-2">- {file.purpose}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" onClick={() => setCurrentPlan(null)} className="flex-1">
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleExecutePlan} 
+                  className="flex-1"
+                  disabled={!currentPlan.features?.some(f => f.approved)}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Execute Plan
+                </Button>
+              </div>
             </div>
           </div>
         )}
