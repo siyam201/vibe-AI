@@ -45,9 +45,10 @@ export const CommandPalette = ({ isOpen, onClose, onSelect }: CommandPaletteProp
 
   if (!isOpen) return null;
 
+  const q = search.toLowerCase();
   const filteredCommands = commands.filter(cmd => 
-    cmd.label.toLowerCase().includes(search.toLowerCase()) ||
-    cmd.description.toLowerCase().includes(search.toLowerCase())
+    (cmd.label || '').toLowerCase().includes(q) ||
+    (cmd.description || '').toLowerCase().includes(q)
   );
 
   const groupedCommands = filteredCommands.reduce((acc, cmd) => {

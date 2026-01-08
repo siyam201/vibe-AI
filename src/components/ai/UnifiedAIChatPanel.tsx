@@ -261,7 +261,7 @@ export const UnifiedAIChatPanel = ({
 
     // Analyze current files for common issues
     for (const file of currentFiles) {
-      const content = file.content;
+      const content = file.content || '';
       
       // Check for console.log statements
       if (content.includes('console.log')) {

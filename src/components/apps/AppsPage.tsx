@@ -43,8 +43,9 @@ export const AppsPage = ({ onOpenApp, onCreateApp }: AppsPageProps) => {
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
 
   const filteredProjects = projects.filter((project) => {
-    return project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description?.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase();
+    return (project.name || '').toLowerCase().includes(q) ||
+      (project.description || '').toLowerCase().includes(q);
   });
 
   const toggleStar = (projectId: string) => {

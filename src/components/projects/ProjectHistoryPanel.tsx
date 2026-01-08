@@ -54,10 +54,11 @@ export const ProjectHistoryPanel = ({
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
 
-  const filteredProjects = projects.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProjects = projects.filter(p => {
+    const q = searchQuery.toLowerCase();
+    return (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q);
+  });
 
   const handleCreateProject = () => {
     if (newProjectName.trim()) {

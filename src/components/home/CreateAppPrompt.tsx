@@ -52,8 +52,10 @@ export const CreateAppPrompt = ({ userName = 'User', onStart }: CreateAppPromptP
   // Auto-generate project name from idea
   useEffect(() => {
     if (idea.trim()) {
-      const words = idea.trim().split(' ').slice(0, 3);
-      const name = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-');
+      const words = idea.trim().split(' ').filter(Boolean).slice(0, 3);
+      const name = words
+        .map(w => (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+        .join('-');
       setProjectName(name.replace(/[^a-zA-Z0-9-]/g, ''));
     } else {
       setProjectName('');

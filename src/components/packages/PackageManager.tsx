@@ -94,9 +94,10 @@ export const PackageManager = ({ isOpen, onClose }: PackageManagerProps) => {
 
     setIsSearching(true);
     const timer = setTimeout(() => {
+      const q = searchQuery.toLowerCase();
       const results = popularPackages.filter(pkg => 
-        pkg.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        pkg.description.toLowerCase().includes(searchQuery.toLowerCase())
+        (pkg.name || '').toLowerCase().includes(q) ||
+        (pkg.description || '').toLowerCase().includes(q)
       );
       
       // Add some mock results based on query

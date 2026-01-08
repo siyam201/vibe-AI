@@ -187,14 +187,15 @@ export const DocsPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+  const q = searchQuery.toLowerCase();
   const filteredCategories = searchQuery
     ? categories.map(cat => ({
         ...cat,
         articles: cat.articles.filter(
           a => 
-            a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            a.titleBn.includes(searchQuery) ||
-            a.description.toLowerCase().includes(searchQuery.toLowerCase())
+            (a.title || '').toLowerCase().includes(q) ||
+            (a.titleBn || '').includes(searchQuery) ||
+            (a.description || '').toLowerCase().includes(q)
         )
       })).filter(cat => cat.articles.length > 0)
     : categories;
