@@ -274,14 +274,17 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
     }
   };
 
-  const getActionIcon = (action: string) => {
-    switch (action.toLowerCase()) {
-      case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
-      case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
-      case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
-      default: return <Circle className="w-3.5 h-3.5" />;
-    }
-  };
+ const getActionIcon = (action?: string) => {
+  // যদি action না থাকে বা খালি হয়, তবে 'edit' ডিফল্ট হিসেবে ধরবে অথবা Circle আইকন দিবে
+  const safeAction = (action || 'edit').toLowerCase();
+
+  switch (safeAction) {
+    case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
+    case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
+    case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
+    default: return <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
+  }
+};
 
   return (
     <div className="h-full flex flex-col bg-[#1a1a2e]">
