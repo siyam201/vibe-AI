@@ -382,103 +382,220 @@ export const UnifiedAIChatPanel = ({
         throw new Error(errorData.error || `Request failed with status ${response.status}`);
       }
 
-      if (activeMode === 'plan') {
-        // Handle plan response (non-streaming)
-        const data = await response.json();
-        console.log('Plan API response:', data);
+      // In the sendMessage function, fix the plan response handling:
+
+if (activeMode === 'plan') {
+  // Handle plan response (non-streaming)
+  const data = await response.json();
+  console.log('Plan API response:', data);
+  
+  // Check if we have a valid plan response
+  if (data && (data.plan || data.message || data.content)) {
+    let planData: ExecutionPlan;
+    
+    if (data.plan) {
+      // Parse and validate the plan from API
+      planData = parsePlanFromAPI(data.plan);
+    } else {
+      // Create a plan from the message/content
+      planData = createPlanFromMessage(data.message || data.content || 'Project Plan');
+    }
+    
+    setCurrentPlan(planData);
+    
+    // Create summary message
+    const featureCount = planData.features?.length || 0;
+    const fileCount = planData.files.length;
+    
+    assistantContent = `## 📋 Plan Generated: ${planData.title}\n\n${planData.summary}\n\n**Overview:**\n• **Complexity:** ${planData.complexity}\n• **Features:** ${featureCount}\n• **Files to create:** ${fileCount}\n• **Estimated time:** ${planData.estimatedTime || 'Not specified'}\n\nReview and approve features below.`;
+    
+    setMessages(prev => [...prev, {
+      id: assistantId,
+      role: 'assistant',
+      content: assistantContent,
+      timestamp: new Date(),
+    }]);
+    toast.success('Plan generated! Review and approve features.');
+  } else {
+    // If no valid response, show error
+    throw new Error('Invalid plan response from server');
+  }
+}
+
+// Add these helper functions after the sendMessage function:
+
+const parsePlanFromAPI = (apiPlan: any): ExecutionPlan => {
+  // Extract and clean up features
+  const features: Feature[] = [];
+  
+  if (Array.isArray(apiPlan.features)) {
+    apiPlan.features.forEach((f: any, idx: number) => {
+      if (f && (f.name || f.description)) {
+        features.push({
+          id: f.id || idx + 1,
+          name: f.name || `Feature ${idx + 1}`,
+          description: f.description || 'No description provided',
+          priority: f.priority || 'should',
+          effort: f.effort || 'medium',
+          approved: false
+        });
+      }
+    });
+  }
+  
+  // Extract and clean up files
+  const files: PlanFile[] = [];
+  
+  if (Array.isArray(apiPlan.files)) {
+    apiPlan.files.forEach((f: any, idx: number) => {
+      if (f && f.path) {
+        // Parse file path and action from the path string
+        let action: 'create' | 'edit' | 'delete' = 'create';
+        let path = f.path;
         
-        if (data.plan) {
-          // Validate and clean up the plan data
-          const cleanPlan: ExecutionPlan = {
-            title: data.plan.title || 'Project Plan',
-            summary: data.plan.summary || 'A detailed execution plan for your project.',
-            complexity: data.plan.complexity || 'medium',
-            estimatedTime: data.plan.estimatedTime,
-            techStack: data.plan.techStack,
-            risks: data.plan.risks,
-            futureConsiderations: data.plan.futureConsiderations,
-            aiRecommendation: data.plan.aiRecommendation,
-            dependencies: Array.isArray(data.plan.dependencies) ? data.plan.dependencies : [],
-            warnings: Array.isArray(data.plan.warnings) ? data.plan.warnings : [],
-            questions: Array.isArray(data.plan.questions) ? data.plan.questions : [],
-            
-            // Clean up features
-            features: Array.isArray(data.plan.features) 
-              ? data.plan.features
-                  .filter((f: any) => f && f.name && f.description && f.name !== 'undefined')
-                  .map((f: Feature, idx: number) => ({
-                    id: f.id || idx + 1,
-                    name: f.name || `Feature ${idx + 1}`,
-                    description: f.description || 'No description provided',
-                    priority: f.priority || 'should',
-                    effort: f.effort || 'medium',
-                    approved: false
-                  }))
-              : [],
-            
-            // Clean up files
-            files: Array.isArray(data.plan.files) 
-              ? data.plan.files
-                  .filter((f: any) => f && f.path && f.path !== 'undefined')
-                  .map((f: PlanFile, idx: number) => ({
-                    path: f.path,
-                    action: f.action || 'create',
-                    purpose: f.purpose || 'Implementation'
-                  }))
-              : [],
-          };
-          
-          setCurrentPlan(cleanPlan);
-          
-          // Create a summary message
-          const featureCount = cleanPlan.features?.length || 0;
-          const fileCount = cleanPlan.files.length;
-          
-          assistantContent = `## 📋 Plan Generated: ${cleanPlan.title}\n\n${cleanPlan.summary}\n\n**Overview:**\n• **Complexity:** ${cleanPlan.complexity}\n• **Features:** ${featureCount}\n• **Files to create:** ${fileCount}\n• **Estimated time:** ${cleanPlan.estimatedTime || 'Not specified'}\n\nReview and approve features below.`;
-        } else {
-          // If no plan structure, create a basic one from the response
-          const basicPlan: ExecutionPlan = {
-            title: 'Login System Development',
-            summary: 'Complete authentication system with login, registration, protected routes, and user dashboard.',
-            complexity: 'medium',
-            estimatedTime: '2-3 days',
-            dependencies: [],
-            warnings: ['Ensure proper security measures', 'Test on multiple devices'],
-            questions: ['What authentication provider?', 'Need social login?'],
-            files: [
-              { path: 'src/components/auth/Login.tsx', action: 'create', purpose: 'Login component' },
-              { path: 'src/pages/LoginPage.tsx', action: 'create', purpose: 'Login page' },
-              { path: 'src/pages/DashboardPage.tsx', action: 'create', purpose: 'Dashboard page' },
-              { path: 'src/store/userStore.ts', action: 'create', purpose: 'User state management' },
-              { path: 'src/utils/supabaseClient.ts', action: 'create', purpose: 'Supabase client setup' },
-              { path: 'src/routes/index.tsx', action: 'create', purpose: 'Application routes' },
-              { path: 'src/components/common/Header.tsx', action: 'create', purpose: 'Common header component' },
-            ],
-            features: [
-              { id: 1, name: 'User Authentication', description: 'Login and registration system with email/password', priority: 'must', effort: 'medium', approved: false },
-              { id: 2, name: 'Protected Routes', description: 'Route protection based on authentication status', priority: 'must', effort: 'medium', approved: false },
-              { id: 3, name: 'Session Management', description: 'Handle user sessions and token storage', priority: 'should', effort: 'low', approved: false },
-              { id: 4, name: 'User Dashboard', description: 'Main dashboard page for authenticated users', priority: 'must', effort: 'high', approved: false },
-              { id: 5, name: 'Responsive Design', description: 'Mobile-friendly responsive layout', priority: 'could', effort: 'medium', approved: false },
-            ]
-          };
-          
-          setCurrentPlan(basicPlan);
-          assistantContent = `## 📋 Plan Generated: Login System Development\n\nComplete authentication system with login, registration, protected routes, and user dashboard.\n\n**Features included:**\n1. **User Authentication** - Login/registration system\n2. **Protected Routes** - Secure access control\n3. **Session Management** - Token handling\n4. **User Dashboard** - Main interface\n5. **Responsive Design** - Mobile-friendly layout\n\nReview and approve features below.`;
+        // Check if path contains action prefix
+        if (path.startsWith('create:') || path.startsWith('edit:') || path.startsWith('delete:')) {
+          const parts = path.split(':');
+          action = parts[0] as 'create' | 'edit' | 'delete';
+          path = parts.slice(1).join(':').trim();
         }
         
-        setMessages(prev => [...prev, {
-          id: assistantId,
-          role: 'assistant',
-          content: assistantContent,
-          timestamp: new Date(),
-        }]);
-        toast.success('Plan generated! Review and approve features.');
-      } else {
-        // Handle chat response (streaming)
-        if (!response.body) {
-          throw new Error('No response body');
-        }
+        files.push({
+          path: path,
+          action: f.action || action,
+          purpose: f.purpose || 'Implementation'
+        });
+      }
+    });
+  }
+  
+  // If no files in API response, create default files for login system
+  if (files.length === 0) {
+    files.push(
+      { path: 'src/components/auth/Login.tsx', action: 'create', purpose: 'Login component' },
+      { path: 'src/pages/LoginPage.tsx', action: 'create', purpose: 'Login page' },
+      { path: 'src/pages/DashboardPage.tsx', action: 'create', purpose: 'Dashboard page' },
+      { path: 'src/store/userStore.ts', action: 'create', purpose: 'User state management' },
+      { path: 'src/utils/supabaseClient.ts', action: 'create', purpose: 'Supabase client setup' },
+      { path: 'src/routes/index.tsx', action: 'create', purpose: 'Application routes' },
+      { path: 'src/components/common/Header.tsx', action: 'create', purpose: 'Common header component' }
+    );
+  }
+  
+  // If no features in API response, create default features
+  if (features.length === 0) {
+    features.push(
+      { id: 1, name: 'User Authentication', description: 'Login and registration system with email/password', priority: 'must', effort: 'medium', approved: false },
+      { id: 2, name: 'Protected Routes', description: 'Route protection based on authentication status', priority: 'must', effort: 'medium', approved: false },
+      { id: 3, name: 'Session Management', description: 'Handle user sessions and token storage', priority: 'should', effort: 'low', approved: false },
+      { id: 4, name: 'User Dashboard', description: 'Main dashboard page for authenticated users', priority: 'must', effort: 'high', approved: false },
+      { id: 5, name: 'Responsive Design', description: 'Mobile-friendly responsive layout', priority: 'could', effort: 'medium', approved: false }
+    );
+  }
+  
+  return {
+    title: apiPlan.title || 'Login System Development',
+    summary: apiPlan.summary || 'Complete authentication system with login, registration, protected routes, and user dashboard.',
+    complexity: apiPlan.complexity || 'medium',
+    estimatedTime: apiPlan.estimatedTime || '2-3 days',
+    techStack: apiPlan.techStack,
+    features,
+    files,
+    risks: apiPlan.risks || [],
+    futureConsiderations: apiPlan.futureConsiderations || [],
+    dependencies: Array.isArray(apiPlan.dependencies) ? apiPlan.dependencies : [],
+    warnings: Array.isArray(apiPlan.warnings) ? apiPlan.warnings : [],
+    questions: Array.isArray(apiPlan.questions) ? apiPlan.questions : [],
+    aiRecommendation: apiPlan.aiRecommendation
+  };
+};
+
+const createPlanFromMessage = (message: string): ExecutionPlan => {
+  // Extract project name from message
+  let title = 'Project Plan';
+  if (message.toLowerCase().includes('login')) {
+    title = 'Login System Development';
+  } else if (message.toLowerCase().includes('dashboard')) {
+    title = 'Dashboard Application';
+  } else if (message.toLowerCase().includes('e-commerce')) {
+    title = 'E-commerce Platform';
+  }
+  
+  return {
+    title,
+    summary: message.length > 150 ? message.substring(0, 150) + '...' : message,
+    complexity: 'medium',
+    estimatedTime: '2-3 days',
+    features: [
+      { id: 1, name: 'Core Functionality', description: 'Main features based on your description', priority: 'must', effort: 'medium', approved: false },
+      { id: 2, name: 'User Interface', description: 'Clean and responsive UI design', priority: 'must', effort: 'high', approved: false },
+      { id: 3, name: 'Data Management', description: 'Handle data storage and retrieval', priority: 'should', effort: 'medium', approved: false },
+      { id: 4, name: 'Authentication', description: 'User login and security features', priority: 'could', effort: 'medium', approved: false },
+      { id: 5, name: 'API Integration', description: 'Connect with external services', priority: 'could', effort: 'low', approved: false }
+    ],
+    files: [
+      { path: 'src/App.tsx', action: 'create', purpose: 'Main application component' },
+      { path: 'src/main.tsx', action: 'create', purpose: 'Application entry point' },
+      { path: 'src/index.css', action: 'create', purpose: 'Global styles' },
+      { path: 'src/components/Layout.tsx', action: 'create', purpose: 'Layout component' },
+      { path: 'src/pages/Home.tsx', action: 'create', purpose: 'Home page' },
+      { path: 'src/utils/api.ts', action: 'create', purpose: 'API utilities' },
+      { path: 'package.json', action: 'edit', purpose: 'Update dependencies' }
+    ],
+    dependencies: ['react', 'typescript', 'tailwindcss'],
+    warnings: ['Test on multiple browsers', 'Ensure mobile responsiveness'],
+    questions: ['What specific features do you need?', 'Any color scheme preferences?']
+  };
+};
+
+// Also update the handleExecutePlan function:
+
+const handleExecutePlan = () => {
+  if (!currentPlan) return;
+  
+  const approvedFeatures = currentPlan.features?.filter(f => f.approved && f.priority !== 'future') || [];
+  
+  if (approvedFeatures.length === 0 && currentPlan.features && currentPlan.features.length > 0) {
+    toast.error('Please approve at least one feature');
+    return;
+  }
+
+  // Get valid approved features
+  const validFeatures = approvedFeatures.filter(f => f.name && f.description);
+  
+  // Get valid files
+  const validFiles = currentPlan.files.filter(f => f.path);
+  
+  // Create a detailed prompt for execution
+  const featuresText = validFeatures.length > 0 
+    ? validFeatures.map(f => `- ${f.name}: ${f.description} (${f.priority} priority)`).join('\n')
+    : '';
+    
+  const filesText = validFiles.length > 0
+    ? validFiles.map(f => `- ${f.action}: ${f.path} - ${f.purpose}`).join('\n')
+    : '';
+
+  const planPrompt = `
+    I want to create: ${currentPlan.title}
+    
+    Project Description: ${currentPlan.summary}
+    
+    Key Features to implement:
+    ${featuresText}
+    
+    Files to create/modify:
+    ${filesText}
+    
+    Tech Stack: ${currentPlan.techStack ? JSON.stringify(currentPlan.techStack) : 'React, TypeScript, TailwindCSS'}
+    
+    Please create this application with clean, production-ready code.
+  `;
+  
+  setActiveMode('chat');
+  setCurrentPlan(null);
+  setInput(planPrompt.trim());
+  toast.success('Plan converted to prompt! Click send to generate code.');
+};
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
