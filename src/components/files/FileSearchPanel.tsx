@@ -59,10 +59,14 @@ export const FileSearchPanel = ({ files, onFileSelect, onClose }: FileSearchPane
   };
 
   const allFiles = flattenFiles(files as any[]);
-  const filteredFiles = allFiles.filter(f => 
-    f.name.toLowerCase().includes(search.toLowerCase()) ||
-    f.path?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredFiles = allFiles.filter(f => {
+  // f.name বা f.path আছে কি না আগে চেক করে নিবে
+  const fileName = f.name?.toLowerCase() || "";
+  const filePath = f.path?.toLowerCase() || "";
+  const searchTerm = search.toLowerCase();
+
+  return fileName.includes(searchTerm) || filePath.includes(searchTerm);
+});
 
   return (
     <div className="w-80 h-full bg-card border-l border-border flex flex-col">
