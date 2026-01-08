@@ -29,9 +29,6 @@ import {
   ThumbsUp,
   Clock,
   Lightbulb,
-  FolderPlus,
-  FileCode,
-  Circle,
   Image,
 } from 'lucide-react';
 
@@ -63,7 +60,6 @@ interface TestResult {
   type: 'error' | 'warning' | 'success';
   message: string;
   file?: string;
-  line?: number;
 }
 
 interface Feature {
@@ -75,19 +71,10 @@ interface Feature {
   approved: boolean;
 }
 
-interface PlanFile {
-  path: string;
-  action: 'create' | 'edit' | 'delete';
-  purpose: string;
-}
-
 interface ExecutionPlan {
   title: string;
   summary: string;
-  complexity: 'simple' | 'medium' | 'complex';
-  estimatedTime?: string;
   features?: Feature[];
-  files: PlanFile[];
   aiRecommendation?: string;
 }
 
@@ -123,10 +110,6 @@ export default function AIChat() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<ExecutionPlan | null>(null);
-  const [expandedSections, setExpandedSections] = useState({
-    features: true,
-    files: false,
-  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -176,7 +159,7 @@ export default function AIChat() {
     handleFiles(files);
   };
 
-  const runTests = async () => {
+  const runTests = () => {
     setIsLoading(true);
     const testResults: TestResult[] = [
       { type: 'success', message: 'All tests passed! No issues found.' },
@@ -186,7 +169,7 @@ export default function AIChat() {
     const testMessage: Message = {
       id: Date.now().toString(),
       role: 'assistant',
-      content: `## Test Results\n\nScanned project files:\n\n✅ All tests passed\n⚠️ 1 warning found`,
+      content: '## Test Results\n\nScanned project files:\n\n✅ All tests passed\n⚠️ 1 warning found',
       timestamp: new Date(),
       testResults,
     };
@@ -197,7 +180,7 @@ export default function AIChat() {
     }, 1500);
   };
 
-  const sendMessage = async (messageText: string) => {
+  const sendMessage = (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
     const attachmentInfo = attachedFiles.length > 0
@@ -217,7 +200,6 @@ export default function AIChat() {
     setAttachedFiles([]);
     setIsLoading(true);
 
-    // Simulate AI response
     setTimeout(() => {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -236,17 +218,10 @@ export default function AIChat() {
         setCurrentPlan({
           title: 'Modern Web App',
           summary: 'A responsive web application with modern UI/UX',
-          complexity: 'medium',
-          estimatedTime: '2-3 hours',
           features: [
             { id: 1, name: 'User Authentication', description: 'Login and signup functionality', priority: 'must', effort: 'medium', approved: false },
             { id: 2, name: 'Dashboard', description: 'Main dashboard with stats', priority: 'must', effort: 'high', approved: false },
             { id: 3, name: 'Dark Mode', description: 'Toggle between light and dark themes', priority: 'should', effort: 'low', approved: false },
-          ],
-          files: [
-            { path: 'src/App.tsx', action: 'edit', purpose: 'Main application component' },
-            { path: 'src/components/Auth.tsx', action: 'create', purpose: 'Authentication components' },
-            { path: 'src/components/Dashboard.tsx', action: 'create', purpose: 'Dashboard view' },
           ],
           aiRecommendation: 'Start with authentication first, then build the dashboard. Dark mode can be added later.',
         });
@@ -257,11 +232,11 @@ export default function AIChat() {
     }, 1500);
   };
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (activeMode === 'test') {
-      await runTests();
+      runTests();
     } else {
-      await sendMessage(input);
+      sendMessage(input);
     }
   };
 
@@ -330,7 +305,6 @@ export default function AIChat() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Sidebar */}
       <div className={`${showHistory ? 'w-64' : 'w-12'} bg-gray-900 border-r border-gray-800 transition-all duration-300 flex flex-col`}>
         <div className="p-3 border-b border-gray-800 flex items-center justify-between">
           {showHistory && <span className="text-sm font-medium">Chats</span>}
@@ -343,24 +317,22 @@ export default function AIChat() {
         </div>
         
         {showHistory && (
-          <div className="flex-1 overflow-auto p-2 space-y-1">
-            {['Recent chat', 'Project planning', 'Bug fixes', 'Code review'].map((chat, i) => (
-              <button key={i} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-800 text-sm text-gray-400 hover:text-gray-100 transition-colors">
-                {chat}
-              </button>
-            ))}
-          </div>
-        )}
-        
-        {showHistory && (
-          <button className="m-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
-            <Plus className="w-4 h-4" />
-            New Chat
-          </button>
+          <>
+            <div className="flex-1 overflow-auto p-2 space-y-1">
+              {['Recent chat', 'Project planning', 'Bug fixes', 'Code review'].map((chat, i) => (
+                <button key={i} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-800 text-sm text-gray-400 hover:text-gray-100 transition-colors">
+                  {chat}
+                </button>
+              ))}
+            </div>
+            <button className="m-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
+              <Plus className="w-4 h-4" />
+              New Chat
+            </button>
+          </>
         )}
       </div>
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col relative">
         {isDragging && (
           <div className="absolute inset-0 bg-green-500/20 border-2 border-dashed border-green-500 z-50 flex items-center justify-center">
@@ -372,7 +344,6 @@ export default function AIChat() {
           </div>
         )}
 
-        {/* Header */}
         <div className="p-4 border-b border-gray-800">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
@@ -386,7 +357,6 @@ export default function AIChat() {
             </div>
           </div>
 
-          {/* Mode Tabs */}
           <div className="grid grid-cols-3 gap-2 bg-gray-900 p-1 rounded-lg">
             {[
               { id: 'chat', icon: Code2, label: 'Code' },
@@ -395,7 +365,7 @@ export default function AIChat() {
             ].map((mode) => (
               <button
                 key={mode.id}
-                onClick={() => setActiveMode(mode.id as any)}
+                onClick={() => setActiveMode(mode.id as 'chat' | 'plan' | 'test')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                   activeMode === mode.id
                     ? 'bg-green-600 text-white shadow-lg shadow-green-600/20'
@@ -409,7 +379,6 @@ export default function AIChat() {
           </div>
         </div>
 
-        {/* Quick Actions */}
         <div className="p-3 border-b border-gray-800 space-y-2">
           <div className="flex gap-2 flex-wrap">
             {quickActions.map((action) => (
@@ -460,7 +429,6 @@ export default function AIChat() {
           )}
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-auto p-4">
           <div className="max-w-4xl mx-auto space-y-4">
             {messages.map((message) => (
@@ -571,7 +539,6 @@ export default function AIChat() {
           </div>
         </div>
 
-        {/* Plan UI */}
         {currentPlan && (
           <div className="border-t border-gray-800 bg-gray-900 max-h-[50%] overflow-auto">
             <div className="p-4 space-y-4 max-w-4xl mx-auto">
@@ -663,7 +630,6 @@ export default function AIChat() {
           </div>
         )}
 
-        {/* Attached Files */}
         {attachedFiles.length > 0 && (
           <div className="px-4 py-3 border-t border-gray-800 flex gap-2 flex-wrap">
             {attachedFiles.map((file) => (
@@ -685,7 +651,6 @@ export default function AIChat() {
           </div>
         )}
 
-        {/* Input Area */}
         <div className="p-4 border-t border-gray-800">
           <div className="bg-gray-900 rounded-xl border border-gray-800 focus-within:border-green-500/50 transition-colors">
             <textarea
