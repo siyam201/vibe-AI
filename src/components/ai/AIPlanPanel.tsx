@@ -312,32 +312,48 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
 
             {/* Files List - Fixed for toLowerCase() error */}
             {plan.files && plan.files.length > 0 && (
-              <div className="space-y-2">
-                <Collapsible open={expandedSections.files} onOpenChange={() => toggleSection('files')}>
-                  <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all">
-                    <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-yellow-400" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Proposed Changes ({plan.files.length})</span>
-                    </div>
-                    {expandedSections.files ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-2 space-y-1">
-                    {plan.files.map((file, i) => (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2 bg-slate-900/40 rounded-lg border border-white/5 group hover:border-white/20 transition-all">
-                        {getActionIcon(file?.action)}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-mono text-slate-300 truncate">{file?.path || 'unknown_file'}</p>
-                          <p className="text-[9px] text-slate-500 truncate">{file?.purpose || 'No description'}</p>
-                        </div>
-                        <span className="text-[9px] font-bold uppercase text-slate-600 group-hover:text-slate-400 transition-colors">
-                          {file?.action || 'EDIT'}
-                        </span>
-                      </div>
-                    ))}
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            )}
+  <div className="mt-4 space-y-2">
+    <div className="flex items-center justify-between mb-2 px-1">
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+        Proposed Changes ({plan.files.length})
+      </span>
+    </div>
+    
+    <div className="space-y-1.5">
+      {plan.files.map((file, i) => (
+        <div 
+          key={i} 
+          className="group flex items-center gap-3 px-3 py-2 bg-slate-900/60 rounded-lg border border-white/5 hover:border-blue-500/30 transition-all duration-200"
+        >
+          {/* Action Icon - Safe toLowerCase */}
+          {getActionIcon(file?.action || 'edit')}
+          
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-mono text-slate-300 truncate">
+              {/* ফাইল নেম বা পাথ ডিসপ্লে */}
+              {file?.path || 'unknown_file'}
+            </p>
+          </div>
+
+          {/* Delete/Remove Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              // আপনার স্টেট থেকে ফাইল ডিলিট করার লজিক
+              // যদি setPlan বা অনুরুপ ফাংশন থাকে তবে নিচের মতো করুন:
+              // const updatedFiles = plan.files.filter((_, index) => index !== i);
+              // setPlan({ ...plan, files: updatedFiles });
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/20 rounded text-red-400/70 hover:text-red-400 transition-all"
+            title="Remove from plan"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 
             {/* Action Buttons */}
             <div className="sticky bottom-0 bg-[#0f0f1a] pt-4 pb-2 space-y-3">
