@@ -237,14 +237,16 @@ export const AIPlanPanel = ({ onExecutePlan, currentFiles }: AIPlanPanelProps) =
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const getComplexityColor = (complexity: string) => {
-    switch (complexity) {
-      case 'simple': return 'text-green-400 bg-green-500/20';
-      case 'medium': return 'text-yellow-400 bg-yellow-500/20';
-      case 'complex': return 'text-red-400 bg-red-500/20';
-      default: return 'text-muted-foreground bg-muted';
-    }
-  };
+  const getComplexityColor = (complexity?: string) => {
+  const safeComplexity = (complexity || 'medium').toLowerCase();
+  
+  switch (safeComplexity) {
+    case 'simple': return 'text-green-400 bg-green-500/20';
+    case 'medium': return 'text-yellow-400 bg-yellow-500/20';
+    case 'complex': return 'text-red-400 bg-red-500/20';
+    default: return 'text-muted-foreground bg-muted';
+  }
+};
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
