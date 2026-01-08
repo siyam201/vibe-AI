@@ -92,7 +92,7 @@ const testPrompts = [
   { label: '🔐 Login Form', prompt: 'Create a beautiful login form with email and password fields' },
 ];
 
-export default function AIChat() {
+export function UnifiedAIChatPanel() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
