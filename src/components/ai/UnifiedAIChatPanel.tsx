@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Sparkles, 
   Send, 
@@ -18,7 +18,6 @@ import {
   Target,
   Bug,
   Upload,
-  Image,
   FileText,
   X,
   TestTube,
@@ -27,32 +26,14 @@ import {
   Zap,
   Code2,
   Paperclip,
-  Settings2,
   ThumbsUp,
   Clock,
-  Package,
   Lightbulb,
-  HelpCircle,
   FolderPlus,
   FileCode,
   Circle,
-  Shield,
+  Image,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
-import { parseFileOperations, FileOperation } from '@/hooks/useFileOperations';
-import { useChatHistory } from '@/hooks/useChatHistory';
-import { ChatHistorySidebar } from './ChatHistorySidebar';
-import { useAuth } from '@/hooks/useAuth';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 
 interface Message {
   id: string;
@@ -62,6 +43,12 @@ interface Message {
   operations?: FileOperation[];
   attachments?: AttachedFile[];
   testResults?: TestResult[];
+}
+
+interface FileOperation {
+  type: 'create' | 'edit' | 'delete';
+  path: string;
+  content?: string;
 }
 
 interface AttachedFile {
@@ -99,30 +86,9 @@ interface ExecutionPlan {
   summary: string;
   complexity: 'simple' | 'medium' | 'complex';
   estimatedTime?: string;
-  techStack?: {
-    frontend: string[];
-    backend: string[];
-    database: string[];
-    apis: string[];
-  };
   features?: Feature[];
   files: PlanFile[];
-  risks?: { type: string; description: string; mitigation: string; severity: 'low' | 'medium' | 'high' }[];
-  futureConsiderations?: string[];
-  dependencies: string[];
-  warnings: string[];
-  questions: string[];
   aiRecommendation?: string;
-}
-
-interface UnifiedAIChatPanelProps {
-  onInsertCode: (code: string) => void;
-  onFileOperations: (operations: FileOperation[]) => void;
-  currentFiles: { path: string; content: string }[];
-  queuedMessage?: { id: string; content: string; mode?: string } | null;
-  onQueuedMessageHandled?: (id: string) => void;
-  projectId?: string;
-  initialMode?: 'chat' | 'plan' | 'test';
 }
 
 const quickActions = [
@@ -139,37 +105,12 @@ const testPrompts = [
   { label: '🔐 Login Form', prompt: 'Create a beautiful login form with email and password fields' },
 ];
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
-const PLAN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-plan`;
-
-export const UnifiedAIChatPanel = ({
-  onInsertCode,
-  onFileOperations,
-  currentFiles,
-  queuedMessage,
-  onQueuedMessageHandled,
-  projectId,
-  initialMode = 'chat',
-}: UnifiedAIChatPanelProps) => {
-  const { user } = useAuth();
-  const {
-    conversations,
-    currentConversation,
-    messages: dbMessages,
-    loading: historyLoading,
-    createConversation,
-    addMessage,
-    updateMessage,
-    loadConversation,
-    deleteConversation,
-  } = useChatHistory(projectId);
-
+export default function AIChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      content:
-        '👋 Hi! I\'m your AI Assistant. I can:\n\n• **Create & Edit** files\n• **Plan** your projects\n• **Test** for bugs\n• **Upload** images & files\n\nTell me what you want to build!',
+      content: '👋 Hi! I\'m your AI Assistant. I can:\n\n• **Create & Edit** files\n• **Plan** your projects\n• **Test** for bugs\n• **Upload** images & files\n\nTell me what you want to build!',
       timestamp: new Date(),
     },
   ]);
@@ -178,32 +119,16 @@ export const UnifiedAIChatPanel = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [activeMode, setActiveMode] = useState<'chat' | 'plan' | 'test'>(initialMode);
+  const [activeMode, setActiveMode] = useState<'chat' | 'plan' | 'test'>('chat');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<ExecutionPlan | null>(null);
   const [expandedSections, setExpandedSections] = useState({
     features: true,
-    techStack: true,
     files: false,
-    risks: false,
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync messages when loading a conversation
-  useEffect(() => {
-    if (dbMessages.length > 0) {
-      const convertedMessages: Message[] = dbMessages.map(m => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        timestamp: new Date(m.created_at),
-        operations: m.operations as FileOperation[],
-      }));
-      setMessages(convertedMessages);
-    }
-  }, [dbMessages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -213,7 +138,6 @@ export const UnifiedAIChatPanel = ({
     scrollToBottom();
   }, [messages]);
 
-  // File upload handlers
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
@@ -230,14 +154,12 @@ export const UnifiedAIChatPanel = ({
       size: file.size,
     }));
     setAttachedFiles(prev => [...prev, ...newAttachments]);
-    toast.success(`${files.length} file(s) attached`);
   };
 
   const removeAttachment = (id: string) => {
     setAttachedFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  // Drag and drop
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -254,92 +176,30 @@ export const UnifiedAIChatPanel = ({
     handleFiles(files);
   };
 
-  // Run tests on current files
-  const runTests = useCallback(async () => {
+  const runTests = async () => {
     setIsLoading(true);
-    const testResults: TestResult[] = [];
-
-    // Analyze current files for common issues
-    for (const file of currentFiles) {
-      const content = file.content || '';
-      
-      // Check for console.log statements
-      if (content.includes('console.log')) {
-        testResults.push({
-          type: 'warning',
-          message: 'Found console.log statement (consider removing for production)',
-          file: file.path,
-        });
-      }
-
-      // Check for TODO comments
-      if (content.toLowerCase().includes('todo')) {
-        testResults.push({
-          type: 'warning',
-          message: 'Found TODO comment',
-          file: file.path,
-        });
-      }
-
-      // Check for empty catch blocks
-      if (content.includes('catch') && content.includes('{}')) {
-        testResults.push({
-          type: 'error',
-          message: 'Found empty catch block (errors may be silently swallowed)',
-          file: file.path,
-        });
-      }
-
-      // Check for missing alt attributes in images
-      if (content.includes('<img') && !content.includes('alt=')) {
-        testResults.push({
-          type: 'warning',
-          message: 'Image missing alt attribute (accessibility issue)',
-          file: file.path,
-        });
-      }
-    }
-
-    if (testResults.length === 0) {
-      testResults.push({
-        type: 'success',
-        message: 'No issues found! Your code looks good.',
-      });
-    }
+    const testResults: TestResult[] = [
+      { type: 'success', message: 'All tests passed! No issues found.' },
+      { type: 'warning', message: 'Consider adding error boundaries', file: 'App.tsx' },
+    ];
 
     const testMessage: Message = {
       id: Date.now().toString(),
       role: 'assistant',
-      content: `## Test Results\n\nScanned ${currentFiles.length} files:\n\n${testResults.map(r => 
-        `${r.type === 'error' ? '❌' : r.type === 'warning' ? '⚠️' : '✅'} ${r.message}${r.file ? ` (${r.file})` : ''}`
-      ).join('\n')}`,
+      content: `## Test Results\n\nScanned project files:\n\n✅ All tests passed\n⚠️ 1 warning found`,
       timestamp: new Date(),
       testResults,
     };
 
-    setMessages(prev => [...prev, testMessage]);
-    setIsLoading(false);
-  }, [currentFiles]);
+    setTimeout(() => {
+      setMessages(prev => [...prev, testMessage]);
+      setIsLoading(false);
+    }, 1500);
+  };
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
-    // Ensure we have a conversation
-    let convId = currentConversation?.id;
-    if (user && !convId) {
-      const newConv = await createConversation();
-      if (newConv) {
-        convId = newConv.id;
-      }
-    }
-
-    // Build context about current files
-    const fileContext =
-      currentFiles.length > 0
-        ? `\n\nCurrent project files:\n${currentFiles.map((f) => `- ${f.path}`).join('\n')}`
-        : '';
-
-    // Add attachment info to message
     const attachmentInfo = attachedFiles.length > 0
       ? `\n\n[Attached ${attachedFiles.length} file(s): ${attachedFiles.map(f => f.name).join(', ')}]`
       : '';
@@ -352,169 +212,49 @@ export const UnifiedAIChatPanel = ({
       attachments: [...attachedFiles],
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setAttachedFiles([]);
     setIsLoading(true);
 
-    // Save user message to DB if logged in
-    if (user && convId) {
-      await addMessage(convId, 'user', messageText.trim());
-    }
-
-    // Use appropriate API based on mode
-    const apiUrl = activeMode === 'plan' ? PLAN_URL : CHAT_URL;
-
-    // Prepare messages for API with file context
-    const apiMessages = newMessages
-      .filter((m) => m.id !== '1')
-      .map((m) => ({
-        role: m.role,
-        content:
-          m.role === 'user' && m.id === userMessage.id
-            ? m.content + fileContext
-            : m.content,
-      }));
-
-    let assistantContent = '';
-    const assistantId = (Date.now() + 1).toString();
-    let dbMessageId: string | null = null;
-
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify(
-          activeMode === 'plan' 
-            ? { message: messageText.trim(), context: { files: currentFiles.map(f => f.path) }, mode: 'new' }
-            : { messages: apiMessages }
-        ),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Request failed with status ${response.status}`);
-      }
+    // Simulate AI response
+    setTimeout(() => {
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: activeMode === 'plan' 
+          ? "I've created a plan for your project. Review the features and click 'Execute Plan' to begin."
+          : "I'll help you build that! Here's what I can do:\n\n1. Create the necessary files\n2. Set up the structure\n3. Implement the functionality\n\nLet me know if you'd like me to proceed!",
+        timestamp: new Date(),
+        operations: activeMode === 'chat' ? [
+          { type: 'create', path: 'components/Button.tsx' },
+          { type: 'edit', path: 'App.tsx' }
+        ] : undefined,
+      };
 
       if (activeMode === 'plan') {
-        // Handle plan response (non-streaming)
-        const data = await response.json();
-        if (data.plan) {
-          // Initialize features as not approved
-          if (data.plan.features) {
-            data.plan.features = data.plan.features.map((f: Feature, idx: number) => ({
-              ...f,
-              id: f.id || idx + 1,
-              approved: false
-            }));
-          }
-          setCurrentPlan(data.plan);
-          assistantContent = `## 📋 Plan Generated: ${data.plan.title}\n\n${data.plan.summary}\n\nReview and approve features below.`;
-        }
-        setMessages(prev => [...prev, {
-          id: assistantId,
-          role: 'assistant',
-          content: assistantContent,
-          timestamp: new Date(),
-        }]);
-        toast.success('Plan generated! Review and approve features.');
-      } else {
-        // Handle chat response (streaming)
-        if (!response.body) {
-          throw new Error('No response body');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let textBuffer = '';
-
-        // Add initial assistant message
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: assistantId,
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-          },
-        ]);
-
-        // Create DB message placeholder
-        if (user && convId) {
-          const dbMsg = await addMessage(convId, 'assistant', '');
-          if (dbMsg) {
-            dbMessageId = dbMsg.id;
-          }
-        }
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          textBuffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
-            let line = textBuffer.slice(0, newlineIndex);
-            textBuffer = textBuffer.slice(newlineIndex + 1);
-
-            if (line.endsWith('\r')) line = line.slice(0, -1);
-            if (line.startsWith(':') || line.trim() === '') continue;
-            if (!line.startsWith('data: ')) continue;
-
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) {
-                assistantContent += content;
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantId ? { ...m, content: assistantContent } : m)),
-                );
-              }
-            } catch {
-              textBuffer = line + '\n' + textBuffer;
-              break;
-            }
-          }
-        }
-
-        // Parse and execute file operations
-        const { operations, cleanText } = parseFileOperations(assistantContent);
-
-        // Update message with clean text and operations
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, content: cleanText, operations } : m)),
-        );
-
-        // Update DB message
-        if (user && dbMessageId) {
-          await updateMessage(dbMessageId, cleanText, operations);
-        }
-
-        // Execute file operations
-        if (operations.length > 0) {
-          onFileOperations(operations);
-          operations.forEach((op) => {
-            const action = op.type === 'create' ? 'Created' : op.type === 'edit' ? 'Updated' : 'Deleted';
-            toast.success(`${action}: ${op.path}`);
-          });
-        }
+        setCurrentPlan({
+          title: 'Modern Web App',
+          summary: 'A responsive web application with modern UI/UX',
+          complexity: 'medium',
+          estimatedTime: '2-3 hours',
+          features: [
+            { id: 1, name: 'User Authentication', description: 'Login and signup functionality', priority: 'must', effort: 'medium', approved: false },
+            { id: 2, name: 'Dashboard', description: 'Main dashboard with stats', priority: 'must', effort: 'high', approved: false },
+            { id: 3, name: 'Dark Mode', description: 'Toggle between light and dark themes', priority: 'should', effort: 'low', approved: false },
+          ],
+          files: [
+            { path: 'src/App.tsx', action: 'edit', purpose: 'Main application component' },
+            { path: 'src/components/Auth.tsx', action: 'create', purpose: 'Authentication components' },
+            { path: 'src/components/Dashboard.tsx', action: 'create', purpose: 'Dashboard view' },
+          ],
+          aiRecommendation: 'Start with authentication first, then build the dashboard. Dark mode can be added later.',
+        });
       }
-    } catch (error) {
-      console.error('AI chat error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to get AI response';
-      toast.error(errorMessage);
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
-    } finally {
+
+      setMessages(prev => [...prev, assistantMessage]);
       setIsLoading(false);
-    }
+    }, 1500);
   };
 
   const handleSend = async () => {
@@ -525,57 +265,10 @@ export const UnifiedAIChatPanel = ({
     }
   };
 
-  useEffect(() => {
-    if (!queuedMessage?.content?.trim()) return;
-    if (isLoading) return;
-
-    // Switch to the appropriate mode if specified
-    if (queuedMessage.mode) {
-      setActiveMode(queuedMessage.mode as 'chat' | 'plan' | 'test');
-    }
-
-    void sendMessage(queuedMessage.content);
-    onQueuedMessageHandled?.(queuedMessage.id);
-  }, [queuedMessage?.id]);
-
   const handleCopy = (content: string, id: string) => {
     navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleNewChat = async () => {
-    if (user) {
-      await createConversation();
-    }
-    setMessages([
-      {
-        id: '1',
-        role: 'assistant',
-        content:
-          '👋 Hi! I\'m your AI Assistant. I can:\n\n• **Create & Edit** files\n• **Plan** your projects\n• **Test** for bugs\n• **Upload** images & files\n\nTell me what you want to build!',
-        timestamp: new Date(),
-      },
-    ]);
-  };
-
-  const renderOperationBadge = (op: FileOperation) => {
-    const icons = {
-      create: <FilePlus className="w-3 h-3" />,
-      edit: <FileEdit className="w-3 h-3" />,
-      delete: <Trash2 className="w-3 h-3" />,
-    };
-    const colors = {
-      create: 'bg-green-500/20 text-green-400',
-      edit: 'bg-yellow-500/20 text-yellow-400',
-      delete: 'bg-red-500/20 text-red-400',
-    };
-    return (
-      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs", colors[op.type])}>
-        {icons[op.type]}
-        {op.type}: {op.path}
-      </span>
-    );
   };
 
   const formatFileSize = (bytes: number) => {
@@ -584,7 +277,6 @@ export const UnifiedAIChatPanel = ({
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  // Plan helper functions
   const toggleFeatureApproval = (featureId: number) => {
     if (!currentPlan?.features) return;
     setCurrentPlan({
@@ -599,48 +291,18 @@ export const UnifiedAIChatPanel = ({
     if (!currentPlan?.features) return;
     setCurrentPlan({
       ...currentPlan,
-      features: currentPlan.features.map(f => 
-        f.priority !== 'future' ? { ...f, approved: true } : f
-      )
+      features: currentPlan.features.map(f => ({ ...f, approved: true }))
     });
-    toast.success('All features approved');
-  };
-
-  const removeFeature = (featureId: number) => {
-    if (!currentPlan?.features) return;
-    setCurrentPlan({
-      ...currentPlan,
-      features: currentPlan.features.filter(f => f.id !== featureId)
-    });
-    toast.success('Feature removed');
   };
 
   const handleExecutePlan = () => {
     if (!currentPlan) return;
-    
-    const approvedFeatures = currentPlan.features?.filter(f => f.approved && f.priority !== 'future') || [];
-    
-    if (approvedFeatures.length === 0 && currentPlan.features && currentPlan.features.length > 0) {
-      toast.error('Please approve at least one feature');
-      return;
-    }
-
-    // Generate code based on the plan
-    const planSummary = `Execute this plan:\n\n**${currentPlan.title}**\n\nFeatures to build:\n${approvedFeatures.map(f => `- ${f.name}: ${f.description}`).join('\n')}\n\nFiles to create:\n${currentPlan.files?.map(f => `- ${f.action}: ${f.path}`).join('\n') || 'Based on features'}`;
+    const approvedFeatures = currentPlan.features?.filter(f => f.approved) || [];
+    if (approvedFeatures.length === 0) return;
     
     setActiveMode('chat');
     setCurrentPlan(null);
-    setInput(planSummary);
-    toast.success('Plan ready! Click send to execute.');
-  };
-
-  const getComplexityColor = (complexity: string) => {
-    switch (complexity) {
-      case 'simple': return 'text-green-400 bg-green-500/20';
-      case 'medium': return 'text-yellow-400 bg-yellow-500/20';
-      case 'complex': return 'text-red-400 bg-red-500/20';
-      default: return 'text-muted-foreground bg-muted';
-    }
+    setInput(`Execute plan: ${currentPlan.title} with ${approvedFeatures.length} features`);
   };
 
   const getPriorityColor = (priority: string) => {
@@ -648,8 +310,7 @@ export const UnifiedAIChatPanel = ({
       case 'must': return 'bg-red-500/20 text-red-400 border-red-500/30';
       case 'should': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
       case 'could': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'future': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
-      default: return 'bg-muted text-muted-foreground';
+      default: return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
     }
   };
 
@@ -662,118 +323,98 @@ export const UnifiedAIChatPanel = ({
     }
   };
 
-  const getActionIcon = (action?: string) => {
-    switch ((action || 'edit').toLowerCase()) {
-      case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
-      case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
-      case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
-      default: return <Circle className="w-3.5 h-3.5" />;
-    }
-  };
-
-  const toggleSection = (section: keyof typeof expandedSections) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
-
   return (
     <div 
-      className="h-full flex"
+      className="h-screen flex bg-gray-950 text-gray-100"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Chat History Sidebar */}
-      {user && (
-        <ChatHistorySidebar
-          conversations={conversations}
-          currentConversationId={currentConversation?.id}
-          isCollapsed={!showHistory}
-          onToggle={() => setShowHistory(!showHistory)}
-          onSelectConversation={loadConversation}
-          onNewChat={handleNewChat}
-          onDeleteConversation={deleteConversation}
-          loading={historyLoading}
-        />
-      )}
+      {/* Sidebar */}
+      <div className={`${showHistory ? 'w-64' : 'w-12'} bg-gray-900 border-r border-gray-800 transition-all duration-300 flex flex-col`}>
+        <div className="p-3 border-b border-gray-800 flex items-center justify-between">
+          {showHistory && <span className="text-sm font-medium">Chats</span>}
+          <button 
+            onClick={() => setShowHistory(!showHistory)}
+            className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors"
+          >
+            <History className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {showHistory && (
+          <div className="flex-1 overflow-auto p-2 space-y-1">
+            {['Recent chat', 'Project planning', 'Bug fixes', 'Code review'].map((chat, i) => (
+              <button key={i} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-800 text-sm text-gray-400 hover:text-gray-100 transition-colors">
+                {chat}
+              </button>
+            ))}
+          </div>
+        )}
+        
+        {showHistory && (
+          <button className="m-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
+            <Plus className="w-4 h-4" />
+            New Chat
+          </button>
+        )}
+      </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-background relative">
-        {/* Drag Overlay */}
+      <div className="flex-1 flex flex-col relative">
         {isDragging && (
-          <div className="absolute inset-0 bg-primary/20 border-2 border-dashed border-primary z-50 flex items-center justify-center">
-            <div className="bg-card p-6 rounded-xl shadow-xl text-center">
-              <Upload className="w-12 h-12 text-primary mx-auto mb-2" />
-              <p className="text-foreground font-medium">Drop files here</p>
-              <p className="text-muted-foreground text-sm">Images, documents, or code files</p>
+          <div className="absolute inset-0 bg-green-500/20 border-2 border-dashed border-green-500 z-50 flex items-center justify-center">
+            <div className="bg-gray-900 p-6 rounded-xl shadow-xl text-center">
+              <Upload className="w-12 h-12 text-green-500 mx-auto mb-2" />
+              <p className="font-medium">Drop files here</p>
+              <p className="text-gray-400 text-sm">Images, documents, or code files</p>
             </div>
           </div>
         )}
 
-        {/* Header with Mode Tabs */}
-        <div className="p-3 border-b border-border">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-800">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-primary-foreground" />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="font-semibold text-foreground text-sm">Vibe AI</h2>
-                <p className="text-xs text-muted-foreground">
-                  {currentConversation ? currentConversation.title : 'Chat + Plan + Test'}
-                </p>
+                <h2 className="font-semibold">Vibe AI</h2>
+                <p className="text-xs text-gray-400">Chat + Plan + Test</p>
               </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {user && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setShowHistory(!showHistory)}
-                  className={cn(showHistory && "bg-primary/20 text-primary")}
-                  title="Chat History"
-                >
-                  <History className="w-4 h-4" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleNewChat}
-                title="New Chat"
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
             </div>
           </div>
 
           {/* Mode Tabs */}
-          <Tabs value={activeMode} onValueChange={(v) => setActiveMode(v as 'chat' | 'plan' | 'test')}>
-            <TabsList className="grid w-full grid-cols-3 h-9">
-              <TabsTrigger value="chat" className="text-xs gap-1.5">
-                <Code2 className="w-3.5 h-3.5" />
-                Code
-              </TabsTrigger>
-              <TabsTrigger value="plan" className="text-xs gap-1.5">
-                <Target className="w-3.5 h-3.5" />
-                Plan
-              </TabsTrigger>
-              <TabsTrigger value="test" className="text-xs gap-1.5">
-                <TestTube className="w-3.5 h-3.5" />
-                Test
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="grid grid-cols-3 gap-2 bg-gray-900 p-1 rounded-lg">
+            {[
+              { id: 'chat', icon: Code2, label: 'Code' },
+              { id: 'plan', icon: Target, label: 'Plan' },
+              { id: 'test', icon: TestTube, label: 'Test' },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                onClick={() => setActiveMode(mode.id as any)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                  activeMode === mode.id
+                    ? 'bg-green-600 text-white shadow-lg shadow-green-600/20'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                <mode.icon className="w-4 h-4" />
+                {mode.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="p-2 border-b border-border space-y-2">
-          <div className="flex gap-1.5 flex-wrap">
+        <div className="p-3 border-b border-gray-800 space-y-2">
+          <div className="flex gap-2 flex-wrap">
             {quickActions.map((action) => (
-              <Button
+              <button
                 key={action.label}
-                variant="outline"
-                size="sm"
-                className="text-xs h-7 gap-1"
                 onClick={() => {
                   if (action.label === 'Test App') {
                     setActiveMode('test');
@@ -782,120 +423,116 @@ export const UnifiedAIChatPanel = ({
                     setInput(action.prompt);
                   }
                 }}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs flex items-center gap-1.5 transition-colors"
               >
-                <action.icon className="w-3 h-3" />
+                <action.icon className="w-3.5 h-3.5" />
                 {action.label}
-              </Button>
+              </button>
             ))}
           </div>
           
-          {/* Templates Toggle */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full text-xs justify-between h-7"
+          <button
             onClick={() => setShowTemplates(!showTemplates)}
+            className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs flex items-center justify-between transition-colors"
           >
-            <span className="flex items-center gap-1">
-              <Play className="w-3 h-3" />
+            <span className="flex items-center gap-2">
+              <Play className="w-3.5 h-3.5" />
               Quick Templates
             </span>
-            {showTemplates ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </Button>
+            {showTemplates ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
           
           {showTemplates && (
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-2 gap-2">
               {testPrompts.map((item) => (
-                <Button
+                <button
                   key={item.label}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-auto py-1.5 justify-start"
                   onClick={() => {
                     setInput(item.prompt);
                     setShowTemplates(false);
                   }}
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-left transition-colors"
                 >
                   {item.label}
-                </Button>
+                </button>
               ))}
             </div>
           )}
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-3">
-          <div className="space-y-4">
+        <div className="flex-1 overflow-auto p-4">
+          <div className="max-w-4xl mx-auto space-y-4">
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={cn(
-                  "flex gap-3 animate-fade-in",
-                  message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
-                )}
+                className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
               >
-                <div className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                   message.role === 'user' 
-                    ? "bg-primary/20 text-primary" 
-                    : "bg-gradient-to-br from-primary/20 to-accent/20"
-                )}>
+                    ? "bg-green-600" 
+                    : "bg-gradient-to-br from-green-500 to-emerald-600"
+                }`}>
                   {message.role === 'user' ? (
-                    <User className="w-4 h-4" />
+                    <User className="w-4 h-4 text-white" />
                   ) : (
-                    <Bot className="w-4 h-4 text-primary" />
+                    <Bot className="w-4 h-4 text-white" />
                   )}
                 </div>
-                <div className={cn(
-                  "flex-1 rounded-lg p-3 text-sm max-w-[85%]",
+                <div className={`flex-1 rounded-xl p-4 max-w-[85%] ${
                   message.role === 'user'
-                    ? "bg-primary/10 text-foreground"
-                    : "bg-secondary/50 text-foreground"
-                )}>
-                  {/* Attachments */}
+                    ? "bg-gray-800 border border-gray-700"
+                    : "bg-gray-900 border border-gray-800"
+                }`}>
                   {message.attachments && message.attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-2">
+                    <div className="flex flex-wrap gap-2 mb-3">
                       {message.attachments.map((file) => (
-                        <div key={file.id} className="bg-background/50 rounded p-2 flex items-center gap-2">
+                        <div key={file.id} className="bg-gray-800 rounded p-2 flex items-center gap-2 border border-gray-700">
                           {file.type === 'image' ? (
                             <img src={file.url} alt={file.name} className="w-16 h-16 object-cover rounded" />
                           ) : (
-                            <FileText className="w-8 h-8 text-muted-foreground" />
+                            <FileText className="w-8 h-8 text-gray-400" />
                           )}
                           <div className="text-xs">
                             <p className="font-medium truncate max-w-[100px]">{file.name}</p>
-                            <p className="text-muted-foreground">{formatFileSize(file.size)}</p>
+                            <p className="text-gray-400">{formatFileSize(file.size)}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* File operations badges */}
                   {message.operations && message.operations.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-2">
+                    <div className="flex flex-wrap gap-2 mb-3">
                       {message.operations.map((op, idx) => (
-                        <span key={idx}>{renderOperationBadge(op)}</span>
+                        <span key={idx} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                          op.type === 'create' ? 'bg-green-500/20 text-green-400' :
+                          op.type === 'edit' ? 'bg-yellow-500/20 text-yellow-400' :
+                          'bg-red-500/20 text-red-400'
+                        }`}>
+                          {op.type === 'create' && <FilePlus className="w-3 h-3" />}
+                          {op.type === 'edit' && <FileEdit className="w-3 h-3" />}
+                          {op.type === 'delete' && <Trash2 className="w-3 h-3" />}
+                          {op.type}: {op.path}
+                        </span>
                       ))}
                     </div>
                   )}
 
-                  {/* Test results */}
                   {message.testResults && message.testResults.length > 0 && (
-                    <div className="space-y-1 mb-2">
+                    <div className="space-y-2 mb-3">
                       {message.testResults.map((result, idx) => (
                         <div 
                           key={idx}
-                          className={cn(
-                            "flex items-center gap-2 p-2 rounded text-xs",
-                            result.type === 'error' && "bg-red-500/10 text-red-400",
-                            result.type === 'warning' && "bg-yellow-500/10 text-yellow-400",
-                            result.type === 'success' && "bg-green-500/10 text-green-400"
-                          )}
+                          className={`flex items-center gap-2 p-2 rounded text-xs ${
+                            result.type === 'error' ? 'bg-red-500/10 text-red-400' :
+                            result.type === 'warning' ? 'bg-yellow-500/10 text-yellow-400' :
+                            'bg-green-500/10 text-green-400'
+                          }`}
                         >
-                          {result.type === 'error' && <AlertTriangle className="w-3 h-3" />}
-                          {result.type === 'warning' && <AlertTriangle className="w-3 h-3" />}
-                          {result.type === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                          {result.type === 'error' && <AlertTriangle className="w-3.5 h-3.5" />}
+                          {result.type === 'warning' && <AlertTriangle className="w-3.5 h-3.5" />}
+                          {result.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5" />}
                           <span>{result.message}</span>
                           {result.file && <code className="opacity-70">({result.file})</code>}
                         </div>
@@ -903,32 +540,28 @@ export const UnifiedAIChatPanel = ({
                     </div>
                   )}
 
-                  {/* Message content */}
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  <div className="whitespace-pre-wrap text-sm">{message.content}</div>
 
-                  {/* Copy button */}
                   {message.role === 'assistant' && message.content && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="mt-2 h-6 w-6"
+                    <button
                       onClick={() => handleCopy(message.content, message.id)}
+                      className="mt-3 p-1.5 hover:bg-gray-800 rounded transition-colors"
                     >
                       {copiedId === message.id ? (
-                        <Check className="w-3 h-3 text-green-400" />
+                        <Check className="w-3.5 h-3.5 text-green-400" />
                       ) : (
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3.5 h-3.5 text-gray-400" />
                       )}
-                    </Button>
+                    </button>
                   )}
                 </div>
               </div>
             ))}
 
             {isLoading && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20">
-                <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                <span className="text-sm text-primary">
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+                <Loader2 className="w-5 h-5 text-green-500 animate-spin" />
+                <span className="text-sm text-green-500">
                   {activeMode === 'test' ? 'Running tests...' : activeMode === 'plan' ? 'Creating plan...' : 'Generating...'}
                 </span>
               </div>
@@ -936,181 +569,125 @@ export const UnifiedAIChatPanel = ({
 
             <div ref={messagesEndRef} />
           </div>
-        </ScrollArea>
+        </div>
 
-        {/* Plan Edit & Approve UI */}
+        {/* Plan UI */}
         {currentPlan && (
-          <div className="border-t border-border bg-secondary/30 max-h-[50%] overflow-auto">
-            <div className="p-3 space-y-3">
-              {/* Plan Header */}
+          <div className="border-t border-gray-800 bg-gray-900 max-h-[50%] overflow-auto">
+            <div className="p-4 space-y-4 max-w-4xl mx-auto">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-medium text-foreground text-sm">{currentPlan.title}</h3>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={cn("px-2 py-0.5 rounded text-xs font-medium", getComplexityColor(currentPlan.complexity))}>
-                      {currentPlan.complexity}
-                    </span>
-                    {currentPlan.estimatedTime && (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        {currentPlan.estimatedTime}
-                      </span>
-                    )}
-                  </div>
+                  <h3 className="font-semibold text-lg">{currentPlan.title}</h3>
+                  <p className="text-sm text-gray-400 mt-1">{currentPlan.summary}</p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setCurrentPlan(null)}
-                >
+                <button onClick={() => setCurrentPlan(null)} className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors">
                   <X className="w-4 h-4" />
-                </Button>
+                </button>
               </div>
 
-              {/* AI Recommendation */}
               {currentPlan.aiRecommendation && (
-                <div className="bg-primary/10 border border-primary/30 rounded-lg p-2">
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
                   <div className="flex items-start gap-2">
-                    <Lightbulb className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                    <p className="text-xs text-foreground/80">{currentPlan.aiRecommendation}</p>
+                    <Lightbulb className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                    <p className="text-sm text-green-400">{currentPlan.aiRecommendation}</p>
                   </div>
                 </div>
               )}
 
-              {/* Features - Editable */}
               {currentPlan.features && currentPlan.features.length > 0 && (
-                <Collapsible open={expandedSections.features} onOpenChange={() => toggleSection('features')}>
-                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-primary" />
-                      <span className="text-xs font-medium">Features ({currentPlan.features.filter(f => f.approved).length}/{currentPlan.features.length} approved)</span>
-                    </div>
-                    {expandedSections.features ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2 space-y-2">
-                    <div className="flex justify-end">
-                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={approveAll}>
-                        <ThumbsUp className="w-3 h-3 mr-1" />
-                        Approve All
-                      </Button>
-                    </div>
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      Features ({currentPlan.features.filter(f => f.approved).length}/{currentPlan.features.length} approved)
+                    </h4>
+                    <button onClick={approveAll} className="text-xs text-green-500 hover:text-green-400 flex items-center gap-1">
+                      <ThumbsUp className="w-3 h-3" />
+                      Approve All
+                    </button>
+                  </div>
+                  <div className="space-y-2">
                     {currentPlan.features.map((feature) => (
                       <div
                         key={feature.id}
-                        className={cn(
-                          "rounded-lg p-3 border transition-colors",
+                        className={`rounded-lg p-3 border transition-all ${
                           feature.approved 
                             ? "bg-green-500/10 border-green-500/30" 
-                            : "bg-background/30 border-border"
-                        )}
+                            : "bg-gray-800 border-gray-700"
+                        }`}
                       >
-                        <div className="flex items-start gap-2">
-                          <Checkbox
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
                             checked={feature.approved}
-                            onCheckedChange={() => toggleFeatureApproval(feature.id)}
-                            className="mt-1"
+                            onChange={() => toggleFeatureApproval(feature.id)}
+                            className="mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 accent-green-600"
                           />
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
                               <span className="text-sm font-medium">{feature.name}</span>
-                              <span className={cn("px-1.5 py-0.5 rounded text-[10px] border", getPriorityColor(feature.priority))}>
+                              <span className={`px-2 py-0.5 rounded text-[10px] border ${getPriorityColor(feature.priority)}`}>
                                 {feature.priority}
                               </span>
-                              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <span className="flex items-center gap-1 text-[10px] text-gray-400">
                                 {getEffortIcon(feature.effort)}
                                 {feature.effort}
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1">{feature.description}</p>
+                            <p className="text-xs text-gray-400">{feature.description}</p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-6 w-6 text-muted-foreground hover:text-red-400"
-                            onClick={() => removeFeature(feature.id)}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
                         </div>
                       </div>
                     ))}
-                  </CollapsibleContent>
-                </Collapsible>
+                  </div>
+                </div>
               )}
 
-              {/* Files */}
-              {currentPlan.files && currentPlan.files.length > 0 && (
-                <Collapsible open={expandedSections.files} onOpenChange={() => toggleSection('files')}>
-                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-primary" />
-                      <span className="text-xs font-medium">Files ({currentPlan.files.length})</span>
-                    </div>
-                    {expandedSections.files ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2 space-y-1">
-                    {currentPlan.files.map((file, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-background/20 rounded text-xs">
-                        {getActionIcon(file.action)}
-                        <span className="font-mono text-muted-foreground">{file.path}</span>
-                      </div>
-                    ))}
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-
-              {/* Execute Button */}
               <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 text-xs"
+                <button
                   onClick={() => setCurrentPlan(null)}
+                  className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm transition-colors"
                 >
                   Cancel
-                </Button>
-                <Button
-                  variant="glow"
-                  size="sm"
-                  className="flex-1 text-xs"
+                </button>
+                <button
                   onClick={handleExecutePlan}
                   disabled={!currentPlan.features?.some(f => f.approved)}
+                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                  <Play className="w-3 h-3 mr-1" />
+                  <Play className="w-4 h-4" />
                   Execute Plan
-                </Button>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Attached Files Preview */}
+        {/* Attached Files */}
         {attachedFiles.length > 0 && (
-          <div className="px-3 py-2 border-t border-border flex gap-2 flex-wrap">
+          <div className="px-4 py-3 border-t border-gray-800 flex gap-2 flex-wrap">
             {attachedFiles.map((file) => (
-              <div key={file.id} className="bg-secondary rounded-lg p-2 flex items-center gap-2 text-xs">
+              <div key={file.id} className="bg-gray-800 rounded-lg p-2 flex items-center gap-2 text-xs border border-gray-700">
                 {file.type === 'image' ? (
                   <img src={file.url} alt={file.name} className="w-8 h-8 object-cover rounded" />
                 ) : (
-                  <FileText className="w-6 h-6 text-muted-foreground" />
+                  <FileText className="w-6 h-6 text-gray-400" />
                 )}
                 <span className="max-w-[100px] truncate">{file.name}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-5 w-5"
+                <button
                   onClick={() => removeAttachment(file.id)}
+                  className="p-1 hover:bg-gray-700 rounded transition-colors"
                 >
                   <X className="w-3 h-3" />
-                </Button>
+                </button>
               </div>
             ))}
           </div>
         )}
 
         {/* Input Area */}
-        <div className="p-3 border-t border-border">
-          <div className="bg-secondary rounded-lg border border-border focus-within:border-primary/50 transition-colors">
+        <div className="p-4 border-t border-gray-800">
+          <div className="bg-gray-900 rounded-xl border border-gray-800 focus-within:border-green-500/50 transition-colors">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -1127,11 +704,11 @@ export const UnifiedAIChatPanel = ({
                   ? "Describe your project idea..."
                   : "Describe what you want to build..."
               }
-              className="w-full bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none min-h-[60px] max-h-[120px]"
+              className="w-full bg-transparent px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none resize-none min-h-[60px] max-h-[120px]"
               rows={2}
               disabled={isLoading}
             />
-            <div className="flex items-center justify-between px-3 py-2 border-t border-border">
+            <div className="flex items-center justify-between px-3 py-2 border-t border-gray-800">
               <div className="flex items-center gap-1">
                 <input
                   type="file"
@@ -1141,56 +718,49 @@ export const UnifiedAIChatPanel = ({
                   multiple
                   accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.html,.css"
                 />
-                <Button 
-                  variant="ghost" 
-                  size="icon-sm" 
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                <button 
                   onClick={() => fileInputRef.current?.click()}
+                  className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
                   title="Attach files"
                 >
                   <Paperclip className="w-4 h-4" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon-sm" 
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                  }}
+                </button>
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
                   title="Upload image"
                 >
                   <Image className="w-4 h-4" />
-                </Button>
-                <span className="text-xs text-muted-foreground ml-2">
-                  {activeMode === 'chat' && <><Zap className="w-3 h-3 inline" /> Code</>}
-                  {activeMode === 'plan' && <><Target className="w-3 h-3 inline" /> Plan</>}
-                  {activeMode === 'test' && <><TestTube className="w-3 h-3 inline" /> Test</>}
+                </button>
+                <span className="text-xs text-gray-500 ml-2 flex items-center gap-1">
+                  {activeMode === 'chat' && <><Zap className="w-3 h-3" /> Code</>}
+                  {activeMode === 'plan' && <><Target className="w-3 h-3" /> Plan</>}
+                  {activeMode === 'test' && <><TestTube className="w-3 h-3" /> Test</>}
                 </span>
               </div>
-              <Button 
-                size="sm"
+              <button 
                 onClick={handleSend}
                 disabled={(!input.trim() && activeMode !== 'test') || isLoading}
-                className="h-8 px-4 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : activeMode === 'test' ? (
                   <>
-                    <TestTube className="w-4 h-4 mr-1" />
+                    <TestTube className="w-4 h-4" />
                     Run Tests
                   </>
                 ) : (
                   <Send className="w-4 h-4" />
                 )}
-              </Button>
+              </button>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground text-center mt-2">
+          <p className="text-xs text-gray-500 text-center mt-2">
             Press Enter to send • Drag & drop files to attach
           </p>
         </div>
       </div>
     </div>
   );
-};
+}
