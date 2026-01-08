@@ -35,14 +35,23 @@ interface IDEWorkspaceProps {
 }
 
 const getLanguage = (extension?: string) => {
+  // যদি extension না থাকে তবে সরাসরি 'plaintext' রিটার্ন করবে
+  if (!extension) return 'plaintext';
+  
+  // extension টাকে ছোট হাতের অক্ষরে কনভার্ট করে চেক করা
+  const ext = extension.toLowerCase();
   const map: Record<string, string> = {
-    'js': 'javascript', 'ts': 'typescript', 'jsx': 'javascript', 
-    'tsx': 'typescript', 'html': 'html', 'css': 'css', 
-    'json': 'json', 'md': 'markdown'
+    'js': 'javascript', 
+    'ts': 'typescript', 
+    'jsx': 'javascript', 
+    'tsx': 'typescript', 
+    'html': 'html', 
+    'css': 'css', 
+    'json': 'json', 
+    'md': 'markdown'
   };
-  return map[extension || ''] || 'plaintext';
+  return map[ext] || 'plaintext';
 };
-
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const {
     projects,
