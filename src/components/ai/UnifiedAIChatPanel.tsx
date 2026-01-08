@@ -663,18 +663,14 @@ export const UnifiedAIChatPanel = ({
   };
 
   const getActionIcon = (action: string | undefined | null) => {
-  // যদি action না থাকে তবে default হিসেবে 'edit' ধরবে
-  const safeAction = (action || 'edit').toLowerCase();
+  // safe lower case check
+  const safeAction = (action || '').toLowerCase();
   
   switch (safeAction) {
-    case 'create': 
-      return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
-    case 'edit': 
-      return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
-    case 'delete': 
-      return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
-    default: 
-      return <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
+    case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
+    case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
+    case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
+    default: return <FileText className="w-3.5 h-3.5 text-blue-400" />;
   }
 };
 
@@ -1045,26 +1041,44 @@ export const UnifiedAIChatPanel = ({
                 </Collapsible>
               )}
 
-              {/* Files */}
-              {currentPlan.files && currentPlan.files.length > 0 && (
-                <Collapsible open={expandedSections.files} onOpenChange={() => toggleSection('files')}>
-                  <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-background/30 rounded-lg hover:bg-background/50 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-primary" />
-                      <span className="text-xs font-medium">Files ({currentPlan.files.length})</span>
-                    </div>
-                    {expandedSections.files ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2 space-y-1">
-                    {currentPlan.files.map((file, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-background/20 rounded text-xs">
-                        {getActionIcon(file.action)}
-                        <span className="font-mono text-muted-foreground">{file.path}</span>
-                      </div>
-                    ))}
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
+             {/* Files Section UI Update */}
+{currentPlan.files && currentPlan.files.length > 0 && (
+  <Collapsible open={expandedSections.files} onOpenChange={() => toggleSection('files')}>
+    <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 bg-slate-900/50 rounded-lg hover:bg-slate-800/50 transition-all border border-white/5">
+      <div className="flex items-center gap-2">
+        <FileCode className="w-4 h-4 text-blue-400" />
+        <span className="text-xs font-medium text-slate-200">Files ({currentPlan.files.length})</span>
+      </div>
+      {expandedSections.files ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+    </CollapsibleTrigger>
+    
+    <CollapsibleContent className="mt-2 space-y-1.5 animate-in fade-in slide-in-from-top-1">
+      {currentPlan.files.map((file, idx) => (
+        <div key={idx} className="group flex items-center justify-between gap-2 px-3 py-2 bg-slate-950/40 rounded border border-white/5 hover:border-blue-500/30">
+          <div className="flex items-center gap-2 overflow-hidden">
+            {/* Safe Action Icon call */}
+            {getActionIcon(file?.action)}
+            <span className="font-mono text-[11px] text-slate-300 truncate">
+              {/* ডাটা না থাকলে 'unnamed' দেখাবে */}
+              {file?.path || file?.name || 'unnamed_file'}
+            </span>
+          </div>
+          
+          {/* Delete Button for File System */}
+          <button 
+            onClick={() => {
+              const updatedFiles = currentPlan.files.filter((_, i) => i !== idx);
+              setCurrentPlan({ ...currentPlan, files: updatedFiles });
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded text-red-400/70 transition-all"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
+    </CollapsibleContent>
+  </Collapsible>
+)}
 
               {/* Execute Button */}
               <div className="flex gap-2 pt-2">
