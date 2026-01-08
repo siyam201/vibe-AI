@@ -1114,24 +1114,34 @@ const handleExecutePlan = () => {
               )}
               
               {/* Files */}
-              {currentPlan.files && currentPlan.files.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Files to create ({currentPlan.files.length})</h4>
-                  <div className="bg-background rounded-lg border border-border p-3">
-                    <div className="space-y-1.5">
-                      {currentPlan.files.map((file, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-sm">
-                          {getActionIcon(file.action)}
-                          <span className="font-mono text-xs">{file.path}</span>
-                          {file.purpose && (
-                            <span className="text-xs text-muted-foreground ml-2">- {file.purpose}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+              {/* Files Section in Plan UI */}
+{currentPlan.files && currentPlan.files.length > 0 && (
+  <div className="space-y-2">
+    <h4 className="font-medium">Files to create ({currentPlan.files.length})</h4>
+    <div className="bg-background rounded-lg border border-border p-3">
+      <div className="space-y-2">
+        {currentPlan.files.map((file, idx) => (
+          <div key={idx} className="flex items-start gap-2">
+            <div className={cn(
+              "p-1.5 rounded mt-0.5",
+              file.action === 'create' ? "bg-green-500/20 text-green-500" :
+              file.action === 'edit' ? "bg-yellow-500/20 text-yellow-500" :
+              "bg-red-500/20 text-red-500"
+            )}>
+              {getActionIcon(file.action)}
+            </div>
+            <div className="flex-1">
+              <div className="font-mono text-sm">{file.path}</div>
+              {file.purpose && (
+                <div className="text-xs text-muted-foreground mt-0.5">{file.purpose}</div>
               )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
               
               {/* Action Buttons */}
               <div className="flex gap-2 pt-2">
