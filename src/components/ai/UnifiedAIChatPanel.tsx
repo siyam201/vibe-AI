@@ -364,13 +364,13 @@ export const UnifiedAIChatPanel = ({
     }
   }, [dbMessages]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   // Run tests on current files
   const runTests = useCallback(async () => {
@@ -436,8 +436,14 @@ export const UnifiedAIChatPanel = ({
     };
 
     setMessages(prev => [...prev, testMessage]);
+    
+    // Save test message to DB if logged in
+    if (user && currentConversation?.id) {
+      await addMessage(currentConversation.id, 'assistant', testMessage.content);
+    }
+    
     setIsLoading(false);
-  }, [currentFiles]);
+  }, [currentFiles, user, currentConversation, addMessage]);
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
@@ -539,12 +545,20 @@ export const UnifiedAIChatPanel = ({
           
           assistantContent = `## 📋 Plan Generated: ${planData.title}\n\n${planData.summary}\n\n**Overview:**\n• **Complexity:** ${planData.complexity}\n• **Features:** ${featureCount}\n• **Files to create:** ${fileCount}\n• **Estimated time:** ${planData.estimatedTime || 'Not specified'}\n\nReview and approve features below.`;
           
-          setMessages(prev => [...prev, {
+          const planMessage: Message = {
             id: assistantId,
             role: 'assistant',
             content: assistantContent,
             timestamp: new Date(),
-          }]);
+          };
+          
+          setMessages(prev => [...prev, planMessage]);
+          
+          // Save plan message to DB
+          if (user && convId) {
+            await addMessage(convId, 'assistant', assistantContent);
+          }
+          
           toast.success('Plan generated! Review and approve features.');
         } else {
           throw new Error('Invalid plan response from server');
@@ -638,7 +652,23 @@ export const UnifiedAIChatPanel = ({
       console.error('AI chat error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to get AI response';
       toast.error(errorMessage);
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
+      
+      // Remove loading message if there was an error
+      setMessages(prev => prev.filter(m => m.id !== assistantId || m.content));
+      
+      // Add error message
+      const errorMsg: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${errorMessage}`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMsg]);
+      
+      // Save error message to DB
+      if (user && convId) {
+        await addMessage(convId, 'assistant', errorMsg.content);
+      }
     } finally {
       setIsLoading(false);
     }
