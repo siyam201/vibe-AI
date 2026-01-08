@@ -273,8 +273,8 @@ export const UnifiedAIChatPanel = ({
       }
 
       // Check for TODO comments
-      if (content.toLowerCase().includes('todo')) {
-        testResults.push({
+      if (content && content.toLowerCase().includes('todo')) {
+            testResults.push({
           type: 'warning',
           message: 'Found TODO comment',
           file: file.path,
@@ -662,14 +662,21 @@ export const UnifiedAIChatPanel = ({
     }
   };
 
-  const getActionIcon = (action: string) => {
-    switch (action.toLowerCase()) {
-      case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
-      case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
-      case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
-      default: return <Circle className="w-3.5 h-3.5" />;
-    }
-  };
+  const getActionIcon = (action: string | undefined | null) => {
+  // যদি action না থাকে তবে default হিসেবে 'edit' ধরবে
+  const safeAction = (action || 'edit').toLowerCase();
+  
+  switch (safeAction) {
+    case 'create': 
+      return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
+    case 'edit': 
+      return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
+    case 'delete': 
+      return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
+    default: 
+      return <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
+  }
+};
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
