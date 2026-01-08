@@ -30,13 +30,10 @@ const Index = () => {
   const [projectName, setProjectName] = useState('My-App');
   const [initialPrompt, setInitialPrompt] = useState<string | undefined>();
   
-  // প্রজেক্টের ডাটা লোড করার জন্য দরকারি হুক
   const { createProject, currentProject, projects } = useProjectHistory();
 
-  // ১. প্রধান ফিক্স: ইউআরএল আইডি থেকে ডাটাবেজের প্রোজেক্ট লোড করা
   useEffect(() => {
     if (projectId && !loading) {
-      // ইউআরএল থেকে নাম বের করা (Login-And-Singup-5136 -> Login-And-Singup)
       const nameParts = projectId.split('-');
       const nameOnly = nameParts.length > 1 ? nameParts.slice(0, -1).join('-') : projectId;
       
@@ -44,11 +41,8 @@ const Index = () => {
       setView('editor');
       setActiveNav('apps');
 
-      // যদি এই প্রজেক্টটি আমাদের লিস্টে থাকে, তবে সেটিকে 'currentProject' হিসেবে সেট করুন
-      // এটি না করলে IDEWorkspace খালি দেখাবে।
       const existingProject = projects?.find(p => p.name === nameOnly);
       if (existingProject) {
-        // এখানে আপনার useProjectHistory তে প্রজেক্ট সেট করার লজিক থাকবে
         console.log("Project found and syncing with IDE...");
       } else {
         toast.info("Project identifier detected, syncing files...");
@@ -137,8 +131,6 @@ const Index = () => {
             onPublish={() => setShowDeploy(true)}
             initialPrompt={initialPrompt}
             initialMode="plan"
-            // এখানে currentProject পাস করা হচ্ছে যাতে ফাইলগুলো লোড হয়
-            projectData={currentProject} 
           />
         )}
       </div>

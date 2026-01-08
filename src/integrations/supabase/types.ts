@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           app_name: string
           created_at: string
+          files: Json | null
           html_content: string
           id: string
           updated_at: string
@@ -25,6 +26,7 @@ export type Database = {
         Insert: {
           app_name: string
           created_at?: string
+          files?: Json | null
           html_content: string
           id?: string
           updated_at?: string
@@ -32,6 +34,7 @@ export type Database = {
         Update: {
           app_name?: string
           created_at?: string
+          files?: Json | null
           html_content?: string
           id?: string
           updated_at?: string

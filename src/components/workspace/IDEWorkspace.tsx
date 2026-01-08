@@ -203,7 +203,30 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                   }
                   setActiveTabId(f.id);
                 }
-              }} 
+              }}
+              onFileCreate={(parentId, name, type) => {
+                const newFile: FileItem = {
+                  id: crypto.randomUUID(),
+                  name,
+                  type,
+                  extension: type === 'file' ? name.split('.').pop() : undefined,
+                  content: type === 'file' ? '' : undefined,
+                  children: type === 'folder' ? [] : undefined,
+                };
+                setFiles(prev => [...prev, newFile]);
+              }}
+              onFileDelete={(fileId) => {
+                setFiles(prev => prev.filter(f => f.id !== fileId));
+                setOpenTabs(prev => prev.filter(t => t.id !== fileId));
+              }}
+              onFileRename={(fileId, newName) => {
+                setFiles(prev => prev.map(f => 
+                  f.id === fileId ? { ...f, name: newName, extension: newName.split('.').pop() } : f
+                ));
+                setOpenTabs(prev => prev.map(t => 
+                  t.id === fileId ? { ...t, name: newName } : t
+                ));
+              }}
             />
           </div>
         )}
