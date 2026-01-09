@@ -768,85 +768,6 @@ const AutoScanSystem = ({
   );
 };
 
-// AI Assistant Panel
-// const AIAssistantPanel = ({ 
-//   onInsertCode,
-//   onFileOperations,
-//   currentFiles 
-// }: { 
-//   onInsertCode: (code: string) => void;
-//   onFileOperations: (operations: any[]) => void;
-//   currentFiles: Array<{ path: string; content: string }>;
-// }) => {
-//   const [queuedMessage, setQueuedMessage] = useState<{ id: string; content: string; mode?: string } | null>(null);
-  
-//   const quickActions = [
-//     {
-//       label: 'Create Login System',
-//       prompt: 'Create a complete login system with email/password authentication and protected routes',
-//       mode: 'plan' as const,
-//       icon: <Shield className="w-3 h-3" />
-//     },
-//     {
-//       label: 'Fix Code Issues',
-//       prompt: 'Scan my code for issues and suggest fixes',
-//       mode: 'test' as const,
-//       icon: <Wrench className="w-3 h-3" />
-//     },
-//     {
-//       label: 'Create Dashboard',
-//       prompt: 'Create a responsive admin dashboard with charts and tables',
-//       mode: 'plan' as const,
-//       icon: <Monitor className="w-3 h-3" />
-//     },
-//     {
-//       label: 'Optimize Performance',
-//       prompt: 'Analyze my code for performance issues and suggest improvements',
-//       mode: 'test' as const,
-//       icon: <Zap className="w-3 h-3" />
-//     }
-//   ];
-
-  return (
-    
-        
-        {/* Quick Actions */}
-        {/* <div className="grid grid-cols-2 gap-2">
-          {quickActions.map((action, index) => (
-            <Button
-              key={index}
-              size="sm"
-              variant="outline"
-              className="text-xs h-8 bg-white/5 hover:bg-white/10 border-white/10"
-              onClick={() => setQueuedMessage({
-                id: Date.now().toString(),
-                content: action.prompt,
-                mode: action.mode
-              })}
-            >
-              {action.icon}
-              {action.label}
-            </Button>
-          ))}
-        </div>
-      </div> */}
-      
-      {/* Unified AI Chat Panel */}
-      <div className="flex-1 overflow-hidden">
-        <UnifiedAIChatPanel
-        
-          onFileOperations={onFileOperations}
-          currentFiles={currentFiles}
-          
-         
-          projectId="current-project"
-          initialMode="chat"
-        />
-      </div>
-    </div>
-  );
-};
-
 // Main IDE Workspace Component
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([
@@ -1249,10 +1170,12 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               </div>
               
               <div className="flex-1 overflow-hidden">
-                <AIAssistantPanel 
+                <UnifiedAIChatPanel
                   onInsertCode={handleInsertCode}
                   onFileOperations={handleFileOperations}
                   currentFiles={currentFiles}
+                  projectId="current-project"
+                  initialMode="chat"
                 />
               </div>
             </div>
