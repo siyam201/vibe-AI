@@ -95,7 +95,7 @@ import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
 import { PreviewPanel } from '@/components/preview/PreviewPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { useFileSystem } from '@/hooks/useFileSystem';
-import { UnifiedAIChatPanel } from './UnifiedAIChatPanel';
+import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { toast } from 'sonner';
 
 // Types
