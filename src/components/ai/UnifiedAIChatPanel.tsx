@@ -9,23 +9,13 @@ import {
   FilePlus,
   FileEdit,
   Trash2,
-  Play,
   History,
   Plus,
-  Target,
-  TestTube,
   Upload,
   Image,
   FileText,
   X,
   Paperclip,
-  ThumbsUp,
-  Clock,
-  Zap,
-  AlertTriangle,
-  FolderPlus,
-  FileCode,
-  Circle,
   MessageSquare,
   Brain,
 } from 'lucide-react';
@@ -37,8 +27,6 @@ import { useChatHistory } from '@/hooks/useChatHistory';
 import { ChatHistorySidebar } from './ChatHistorySidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 
 interface Message {
   id: string;
@@ -57,149 +45,16 @@ interface AttachedFile {
   size: number;
 }
 
-interface Feature {
-  id: number;
-  name: string;
-  description: string;
-  priority: 'must' | 'should' | 'could' | 'future';
-  effort: 'low' | 'medium' | 'high';
-  approved: boolean;
-}
-
-interface PlanFile {
-  path: string;
-  action: 'create' | 'edit' | 'delete';
-  purpose: string;
-}
-
-interface ExecutionPlan {
-  title: string;
-  summary: string;
-  complexity: 'simple' | 'medium' | 'complex';
-  estimatedTime?: string;
-  techStack?: {
-    frontend: string[];
-    backend: string[];
-    database: string[];
-    apis: string[];
-  };
-  features?: Feature[];
-  files: PlanFile[];
-  dependencies: string[];
-  warnings: string[];
-  questions: string[];
-  aiRecommendation?: string;
-}
-
 interface UnifiedAIChatPanelProps {
   onInsertCode: (code: string) => void;
   onFileOperations: (operations: FileOperation[]) => void;
   currentFiles: { path: string; content: string }[];
-  queuedMessage?: { id: string; content: string; mode?: string } | null;
+  queuedMessage?: { id: string; content: string } | null;
   onQueuedMessageHandled?: (id: string) => void;
   projectId?: string;
-  initialMode?: 'chat' | 'plan' | 'test';
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
-const PLAN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-plan`;
-
-// Helper to parse API plan response
-const parsePlanResponse = (data: any): ExecutionPlan => {
-  console.log('Parsing plan response:', data);
-  
-  // If data already has a plan structure
-  if (data.plan) {
-    const plan = data.plan;
-    return {
-      title: plan.title || 'Project Plan',
-      summary: plan.summary || 'Detailed implementation plan',
-      complexity: plan.complexity || 'medium',
-      estimatedTime: plan.estimatedTime || '2-3 hours',
-      techStack: plan.techStack,
-      features: Array.isArray(plan.features) ? plan.features.map((f: any, idx: number) => ({
-        id: idx + 1,
-        name: f.name || `Feature ${idx + 1}`,
-        description: f.description || 'No description',
-        priority: f.priority || 'should',
-        effort: f.effort || 'medium',
-        approved: false
-      })) : [
-        {
-          id: 1,
-          name: 'Core Functionality',
-          description: 'Main features implementation',
-          priority: 'must',
-          effort: 'medium',
-          approved: false
-        }
-      ],
-      files: Array.isArray(plan.files) ? plan.files.map((f: any, idx: number) => ({
-        path: f.path || `file${idx + 1}.tsx`,
-        action: f.action || 'create',
-        purpose: f.purpose || 'Implementation'
-      })) : [
-        { path: 'src/App.tsx', action: 'create', purpose: 'Main app component' },
-        { path: 'src/main.tsx', action: 'create', purpose: 'Entry point' }
-      ],
-      dependencies: Array.isArray(plan.dependencies) ? plan.dependencies : ['react', 'typescript'],
-      warnings: Array.isArray(plan.warnings) ? plan.warnings : [],
-      questions: Array.isArray(plan.questions) ? plan.questions : [],
-      aiRecommendation: plan.aiRecommendation
-    };
-  }
-  
-  // If data is from direct message response
-  if (data.content || data.message) {
-    const content = data.content || data.message;
-    return {
-      title: 'Project Plan',
-      summary: content.length > 200 ? content.substring(0, 200) + '...' : content,
-      complexity: 'medium',
-      estimatedTime: '2-3 hours',
-      features: [
-        { id: 1, name: 'Core Implementation', description: 'Main functionality', priority: 'must', effort: 'medium', approved: false },
-        { id: 2, name: 'UI Components', description: 'User interface elements', priority: 'must', effort: 'medium', approved: false },
-        { id: 3, name: 'State Management', description: 'Data handling', priority: 'should', effort: 'low', approved: false },
-      ],
-      files: [
-        { path: 'src/App.tsx', action: 'create', purpose: 'Main application' },
-        { path: 'src/index.tsx', action: 'create', purpose: 'Entry point' },
-        { path: 'src/styles.css', action: 'create', purpose: 'Styling' },
-      ],
-      dependencies: ['react', 'typescript'],
-      warnings: ['Test thoroughly before deployment'],
-      questions: ['Any specific requirements?'],
-      aiRecommendation: 'Follow best practices for production code'
-    };
-  }
-  
-  // Default fallback
-  return {
-    title: 'Login System Development',
-    summary: 'Complete authentication system with login, registration, and dashboard',
-    complexity: 'medium',
-    estimatedTime: '3-4 hours',
-    features: [
-      { id: 1, name: 'User Authentication', description: 'Login and registration system with email/password', priority: 'must', effort: 'medium', approved: false },
-      { id: 2, name: 'Protected Routes', description: 'Route protection based on authentication status', priority: 'must', effort: 'medium', approved: false },
-      { id: 3, name: 'Session Management', description: 'Handle user sessions and token storage', priority: 'should', effort: 'low', approved: false },
-      { id: 4, name: 'User Dashboard', description: 'Main dashboard for authenticated users', priority: 'must', effort: 'high', approved: false },
-      { id: 5, name: 'Responsive Design', description: 'Mobile-friendly layout', priority: 'could', effort: 'medium', approved: false }
-    ],
-    files: [
-      { path: 'src/components/auth/Login.tsx', action: 'create', purpose: 'Login component' },
-      { path: 'src/pages/LoginPage.tsx', action: 'create', purpose: 'Login page' },
-      { path: 'src/pages/DashboardPage.tsx', action: 'create', purpose: 'Dashboard page' },
-      { path: 'src/utils/supabaseClient.ts', action: 'create', purpose: 'Supabase setup' },
-      { path: 'src/routes/index.tsx', action: 'create', purpose: 'App routes' }
-    ],
-    dependencies: ['react', 'typescript', 'supabase', 'tailwindcss'],
-    warnings: ['Ensure proper error handling', 'Test on multiple browsers'],
-    questions: ['Any specific design requirements?', 'Authentication method preferences?'],
-    aiRecommendation: 'Use Supabase Auth for secure authentication'
-  };
-};
 
 export const UnifiedAIChatPanel = ({
   onInsertCode,
@@ -208,7 +63,6 @@ export const UnifiedAIChatPanel = ({
   queuedMessage,
   onQueuedMessageHandled,
   projectId,
-  initialMode = 'chat',
 }: UnifiedAIChatPanelProps) => {
   const { user } = useAuth();
   const {
@@ -227,7 +81,7 @@ export const UnifiedAIChatPanel = ({
     {
       id: '1',
       role: 'assistant',
-      content: '👋 Hi! I\'m your AI Assistant. I can help you build features or create detailed plans!',
+      content: '👋 Hi! I\'m your AI Assistant. Tell me what you want to build!',
       timestamp: new Date(),
     },
   ]);
@@ -235,10 +89,8 @@ export const UnifiedAIChatPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [activeMode, setActiveMode] = useState<'chat' | 'plan' | 'test'>(initialMode);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [currentPlan, setCurrentPlan] = useState<ExecutionPlan | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -309,29 +161,6 @@ export const UnifiedAIChatPanel = ({
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  const runTests = useCallback(async () => {
-    setIsLoading(true);
-    
-    // Simulate test results
-    const testResults = [
-      { type: 'success' as const, message: 'No TypeScript errors found', file: 'src/App.tsx' },
-      { type: 'warning' as const, message: 'Consider adding error boundaries', file: 'src/components' },
-      { type: 'success' as const, message: 'All imports are valid' },
-    ];
-
-    const testMessage: Message = {
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: `## 🧪 Test Results\n\nScanned ${currentFiles.length} files:\n\n${testResults.map(r => 
-        `${r.type === 'success' ? '✅' : '⚠️'} ${r.message}${r.file ? ` (${r.file})` : ''}`
-      ).join('\n')}\n\n**Recommendation:** Continue with implementation!`,
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, testMessage]);
-    setIsLoading(false);
-  }, [currentFiles]);
-
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
@@ -345,9 +174,10 @@ export const UnifiedAIChatPanel = ({
     }
 
     // Build context about current files
-    const fileContext = currentFiles.length > 0
-      ? `\n\nCurrent project files:\n${currentFiles.map((f) => `- ${f.path}`).join('\n')}`
-      : '';
+    const fileContext =
+      currentFiles.length > 0
+        ? `\n\nCurrent project files:\n${currentFiles.map((f) => `- ${f.path}`).join('\n')}`
+        : '';
 
     // Add attachment info to message
     const attachmentInfo = attachedFiles.length > 0
@@ -373,161 +203,140 @@ export const UnifiedAIChatPanel = ({
       await addMessage(convId, 'user', messageText.trim());
     }
 
-    // Use appropriate API based on mode
-    const apiUrl = activeMode === 'plan' ? PLAN_URL : CHAT_URL;
+    // Prepare messages for API with file context
+    const apiMessages = newMessages
+      .filter((m) => m.id !== '1')
+      .map((m) => ({
+        role: m.role,
+        content:
+          m.role === 'user' && m.id === userMessage.id
+            ? m.content + fileContext
+            : m.content,
+      }));
+
+    let assistantContent = '';
     const assistantId = (Date.now() + 1).toString();
+    let dbMessageId: string | null = null;
 
     try {
-      if (activeMode === 'plan') {
-        // Use PLAN API endpoint for plan generation
-        const response = await fetch(PLAN_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({
-            message: messageText.trim(),
-            context: {
-              currentFiles: currentFiles.map(f => f.path),
-              hasAuth: true,
-              projectType: 'web_app'
-            }
-          }),
-        });
+      const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ 
+          messages: apiMessages,
+          // Tell the AI to respond in a structured format for features/files
+          instructions: "Please provide a clear response with features and files needed. Format features as bullet points and files as a list."
+        }),
+      });
 
-        if (!response.ok) {
-          throw new Error(`Plan API failed with status ${response.status}`);
-        }
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
 
-        const data = await response.json();
-        console.log('Plan API response:', data);
+      if (!response.body) {
+        throw new Error('No response body');
+      }
 
-        const plan = parsePlanResponse(data);
-        setCurrentPlan(plan);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let textBuffer = '';
 
-        const planMessage: Message = {
+      // Add initial assistant message
+      setMessages((prev) => [
+        ...prev,
+        {
           id: assistantId,
           role: 'assistant',
-          content: `## 📋 Plan Generated: ${plan.title}\n\n**${plan.summary}**\n\n**Complexity:** ${plan.complexity}\n**Estimated Time:** ${plan.estimatedTime}\n\n**Features:** ${plan.features?.length || 0}\n**Files to Create:** ${plan.files.length}\n\nReview the plan below and approve features to proceed with implementation.`,
+          content: '',
           timestamp: new Date(),
-        };
+        },
+      ]);
 
-        setMessages(prev => [...prev, planMessage]);
-        
-        // Save plan message to DB
-        if (user && convId) {
-          await addMessage(convId, 'assistant', planMessage.content);
-        }
-        
-        toast.success('Plan generated successfully!');
-        
-      } else {
-        // Use CHAT API endpoint for regular chat
-        const response = await fetch(CHAT_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({
-            messages: [
-              ...messages.slice(1).map(m => ({
-                role: m.role,
-                content: m.content
-              })),
-              {
-                role: 'user',
-                content: messageText.trim() + fileContext + attachmentInfo
-              }
-            ]
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Chat API failed with status ${response.status}`);
-        }
-
-        if (!response.body) {
-          throw new Error('No response body from chat API');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let assistantContent = '';
-        let dbMessageId: string | null = null;
-
-        // Add initial assistant message
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: assistantId,
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-          },
-        ]);
-
-        // Create DB message placeholder
-        if (user && convId) {
-          const dbMsg = await addMessage(convId, 'assistant', '');
-          if (dbMsg) {
-            dbMessageId = dbMsg.id;
-          }
-        }
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const text = decoder.decode(value, { stream: true });
-          assistantContent += text;
-
-          setMessages((prev) =>
-            prev.map((m) => 
-              m.id === assistantId ? { ...m, content: assistantContent } : m
-            ),
-          );
-        }
-
-        // Parse and execute file operations
-        const { operations, cleanText } = parseFileOperations(assistantContent);
-
-        // Update message with clean text and operations
-        setMessages((prev) =>
-          prev.map((m) => 
-            m.id === assistantId ? { ...m, content: cleanText, operations } : m
-          ),
-        );
-
-        // Update DB message
-        if (user && dbMessageId) {
-          await updateMessage(dbMessageId, cleanText, operations);
-        }
-
-        // Execute file operations
-        if (operations.length > 0) {
-          onFileOperations(operations);
-          operations.forEach((op) => {
-            const action = op.type === 'create' ? 'Created' : op.type === 'edit' ? 'Updated' : 'Deleted';
-            toast.success(`${action}: ${op.path}`);
-          });
+      // Create DB message placeholder
+      if (user && convId) {
+        const dbMsg = await addMessage(convId, 'assistant', '');
+        if (dbMsg) {
+          dbMessageId = dbMsg.id;
         }
       }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        textBuffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
+          let line = textBuffer.slice(0, newlineIndex);
+          textBuffer = textBuffer.slice(newlineIndex + 1);
+
+          if (line.endsWith('\r')) line = line.slice(0, -1);
+          if (line.trim() === '') continue;
+          if (!line.startsWith('data: ')) continue;
+
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') break;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, content: assistantContent } : m)),
+              );
+            }
+          } catch {
+            textBuffer = line + '\n' + textBuffer;
+            break;
+          }
+        }
+      }
+
+      // Parse and execute file operations
+      const { operations, cleanText } = parseFileOperations(assistantContent);
+
+      // Update message with clean text and operations
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, content: cleanText, operations } : m)),
+      );
+
+      // Update DB message
+      if (user && dbMessageId) {
+        await updateMessage(dbMessageId, cleanText, operations);
+      }
+
+      // Execute file operations
+      if (operations.length > 0) {
+        onFileOperations(operations);
+        operations.forEach((op) => {
+          const action = op.type === 'create' ? 'Created' : op.type === 'edit' ? 'Updated' : 'Deleted';
+          toast.success(`${action}: ${op.path}`);
+        });
+      }
+
     } catch (error) {
-      console.error('AI API error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'API request failed';
+      console.error('AI chat error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get AI response';
       toast.error(errorMessage);
+      
+      // Remove loading message if there was an error
+      setMessages(prev => prev.filter(m => m.id !== assistantId || m.content));
       
       // Add error message
       const errorMsg: Message = {
-        id: assistantId,
+        id: Date.now().toString(),
         role: 'assistant',
         content: `Sorry, I encountered an error: ${errorMessage}`,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMsg]);
       
+      // Save error message to DB
       if (user && convId) {
         await addMessage(convId, 'assistant', errorMsg.content);
       }
@@ -537,20 +346,13 @@ export const UnifiedAIChatPanel = ({
   };
 
   const handleSend = async () => {
-    if (activeMode === 'test') {
-      await runTests();
-    } else {
-      await sendMessage(input);
-    }
+    if (!input.trim() || isLoading) return;
+    await sendMessage(input);
   };
 
   useEffect(() => {
     if (!queuedMessage?.content?.trim()) return;
     if (isLoading) return;
-
-    if (queuedMessage.mode) {
-      setActiveMode(queuedMessage.mode as 'chat' | 'plan' | 'test');
-    }
 
     void sendMessage(queuedMessage.content);
     onQueuedMessageHandled?.(queuedMessage.id);
@@ -570,11 +372,10 @@ export const UnifiedAIChatPanel = ({
       {
         id: '1',
         role: 'assistant',
-        content: '👋 Hi! I\'m your AI Assistant. I can help you build features or create detailed plans!',
+        content: '👋 Hi! I\'m your AI Assistant. Tell me what you want to build!',
         timestamp: new Date(),
       },
     ]);
-    setCurrentPlan(null);
   };
 
   const renderOperationBadge = (op: FileOperation) => {
@@ -600,105 +401,6 @@ export const UnifiedAIChatPanel = ({
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  // Plan helper functions
-  const toggleFeatureApproval = (featureId: number) => {
-    if (!currentPlan?.features) return;
-    setCurrentPlan({
-      ...currentPlan,
-      features: currentPlan.features.map(f => 
-        f.id === featureId ? { ...f, approved: !f.approved } : f
-      )
-    });
-  };
-
-  const approveAll = () => {
-    if (!currentPlan?.features) return;
-    setCurrentPlan({
-      ...currentPlan,
-      features: currentPlan.features.map(f => ({ ...f, approved: true }))
-    });
-    toast.success('All features approved');
-  };
-
-  const handleExecutePlan = () => {
-    if (!currentPlan) return;
-    
-    const approvedFeatures = currentPlan.features?.filter(f => f.approved) || [];
-    
-    if (approvedFeatures.length === 0) {
-      toast.error('Please approve at least one feature');
-      return;
-    }
-
-    // Create a detailed prompt for execution
-    const featuresText = approvedFeatures.map(f => 
-      `- ${f.name}: ${f.description} (${f.priority} priority, ${f.effort} effort)`
-    ).join('\n');
-    
-    const filesText = currentPlan.files.map(f => 
-      `- ${f.action}: ${f.path} - ${f.purpose}`
-    ).join('\n');
-
-    const planPrompt = `I want to create a ${currentPlan.title}.
-
-Project Description: ${currentPlan.summary}
-
-Approved Features:
-${featuresText}
-
-Files to create/modify:
-${filesText}
-
-Complexity: ${currentPlan.complexity}
-Estimated Time: ${currentPlan.estimatedTime}
-
-${currentPlan.aiRecommendation ? `AI Recommendation: ${currentPlan.aiRecommendation}` : ''}
-
-Please create clean, production-ready code for this project.`;
-    
-    setActiveMode('chat');
-    setCurrentPlan(null);
-    setInput(planPrompt.trim());
-    toast.success('Plan approved! Ready to generate code.');
-  };
-
-  const getComplexityColor = (complexity: string) => {
-    switch (complexity) {
-      case 'simple': return 'text-green-400 bg-green-500/20';
-      case 'medium': return 'text-yellow-400 bg-yellow-500/20';
-      case 'complex': return 'text-red-400 bg-red-500/20';
-      default: return 'text-muted-foreground bg-muted';
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'must': return 'bg-red-500/20 text-red-400 border-red-500/30';
-      case 'should': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-      case 'could': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'future': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
-      default: return 'bg-muted text-muted-foreground';
-    }
-  };
-
-  const getEffortIcon = (effort: string) => {
-    switch (effort) {
-      case 'low': return <Zap className="w-3 h-3 text-green-400" />;
-      case 'medium': return <Clock className="w-3 h-3 text-yellow-400" />;
-      case 'high': return <AlertTriangle className="w-3 h-3 text-red-400" />;
-      default: return null;
-    }
-  };
-
-  const getActionIcon = (action?: string) => {
-    switch ((action || 'create').toLowerCase()) {
-      case 'create': return <FolderPlus className="w-3.5 h-3.5 text-green-400" />;
-      case 'edit': return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
-      case 'delete': return <Trash2 className="w-3.5 h-3.5 text-red-400" />;
-      default: return <Circle className="w-3.5 h-3.5" />;
-    }
   };
 
   return (
@@ -770,36 +472,15 @@ Please create clean, production-ready code for this project.`;
           </div>
         </div>
 
-        {/* Simple Mode Selector */}
+        {/* Simple Chat Mode Indicator */}
         <div className="px-4 py-2 border-b border-border">
-          <div className="flex gap-1 bg-muted p-1 rounded-lg">
-            <Button
-              variant={activeMode === 'chat' ? "default" : "ghost"}
-              size="sm"
-              className={cn("flex-1 text-xs", activeMode === 'chat' && "bg-background")}
-              onClick={() => setActiveMode('chat')}
-            >
-              <MessageSquare className="w-3 h-3 mr-1" />
-              Chat
-            </Button>
-            <Button
-              variant={activeMode === 'plan' ? "default" : "ghost"}
-              size="sm"
-              className={cn("flex-1 text-xs", activeMode === 'plan' && "bg-background")}
-              onClick={() => setActiveMode('plan')}
-            >
-              <Target className="w-3 h-3 mr-1" />
-              Plan
-            </Button>
-            <Button
-              variant={activeMode === 'test' ? "default" : "ghost"}
-              size="sm"
-              className={cn("flex-1 text-xs", activeMode === 'test' && "bg-background")}
-              onClick={() => setActiveMode('test')}
-            >
-              <TestTube className="w-3 h-3 mr-1" />
-              Test
-            </Button>
+          <div className="flex items-center justify-center">
+            <div className="bg-muted/50 px-3 py-1 rounded-full">
+              <span className="text-xs font-medium flex items-center gap-1">
+                <MessageSquare className="w-3 h-3" />
+                Chat Assistant
+              </span>
+            </div>
           </div>
         </div>
 
@@ -865,8 +546,45 @@ Please create clean, production-ready code for this project.`;
                     </div>
                   )}
 
-                  {/* Message text */}
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {/* Message text - render markdown-like content */}
+                  <div className="whitespace-pre-wrap">
+                    {message.content.split('\n').map((line, idx) => {
+                      // Check if line is a header
+                      if (line.startsWith('# ')) {
+                        return <h1 key={idx} className="text-lg font-bold mt-2 mb-1">{line.substring(2)}</h1>;
+                      }
+                      if (line.startsWith('## ')) {
+                        return <h2 key={idx} className="text-md font-semibold mt-2 mb-1">{line.substring(3)}</h2>;
+                      }
+                      if (line.startsWith('### ')) {
+                        return <h3 key={idx} className="text-sm font-medium mt-2 mb-1">{line.substring(4)}</h3>;
+                      }
+                      // Check if line is a feature/item with bullet point
+                      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+                        const text = line.trim().substring(2);
+                        const isFeature = text.includes('Feature') || text.includes('feature');
+                        const isFile = text.toLowerCase().includes('.txt') || 
+                                      text.toLowerCase().includes('.tsx') || 
+                                      text.toLowerCase().includes('.ts') ||
+                                      text.toLowerCase().includes('.jsx') ||
+                                      text.toLowerCase().includes('.js');
+                        
+                        return (
+                          <div key={idx} className="flex items-start gap-2 mt-1">
+                            <span className="text-muted-foreground">•</span>
+                            <span className={cn(
+                              isFeature && "font-medium",
+                              isFile && "font-mono text-sm"
+                            )}>
+                              {text}
+                            </span>
+                          </div>
+                        );
+                      }
+                      // Regular text
+                      return <p key={idx} className="mb-1">{line}</p>;
+                    })}
+                  </div>
 
                   {/* Copy button */}
                   {message.role === 'assistant' && message.content && (
@@ -890,133 +608,13 @@ Please create clean, production-ready code for this project.`;
             {isLoading && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-muted">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">
-                  {activeMode === 'plan' ? 'Creating plan...' : 
-                   activeMode === 'test' ? 'Running tests...' : 'Generating response...'}
-                </span>
+                <span className="text-sm">Generating response...</span>
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
-
-        {/* Plan Section (Popup) */}
-        {currentPlan && (
-          <div className="border-t border-border p-4 bg-muted/30">
-            <div className="max-w-2xl mx-auto space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-lg">{currentPlan.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{currentPlan.summary}</p>
-                </div>
-                <Button variant="ghost" size="icon-sm" onClick={() => setCurrentPlan(null)}>
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-              
-              {/* Complexity Badge */}
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className={getComplexityColor(currentPlan.complexity)}>
-                  {currentPlan.complexity} complexity
-                </Badge>
-                {currentPlan.estimatedTime && (
-                  <Badge variant="secondary">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {currentPlan.estimatedTime}
-                  </Badge>
-                )}
-              </div>
-              
-              {/* Features */}
-              {currentPlan.features && currentPlan.features.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-medium">Features ({currentPlan.features.filter(f => f.approved).length}/{currentPlan.features.length} approved)</h4>
-                    <Button variant="outline" size="sm" onClick={approveAll}>
-                      <ThumbsUp className="w-3 h-3 mr-1" />
-                      Approve All
-                    </Button>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    {currentPlan.features.map((feature) => (
-                      <div key={feature.id} className={cn(
-                        "flex items-start gap-3 p-3 rounded-lg border",
-                        feature.approved 
-                          ? "bg-green-500/10 border-green-500/20" 
-                          : "bg-background border-border"
-                      )}>
-                        <Checkbox
-                          checked={feature.approved}
-                          onCheckedChange={() => toggleFeatureApproval(feature.id)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="font-medium">{feature.name}</span>
-                            <Badge variant="outline" className={getPriorityColor(feature.priority)}>
-                              {feature.priority}
-                            </Badge>
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                              {getEffortIcon(feature.effort)}
-                              {feature.effort} effort
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground">{feature.description}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Files */}
-              {currentPlan.files && currentPlan.files.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Files to create ({currentPlan.files.length})</h4>
-                  <div className="bg-background rounded-lg border border-border p-3">
-                    <div className="space-y-2">
-                      {currentPlan.files.map((file, idx) => (
-                        <div key={idx} className="flex items-start gap-2">
-                          <div className={cn(
-                            "p-1.5 rounded mt-0.5",
-                            file.action === 'create' ? "bg-green-500/20 text-green-500" :
-                            file.action === 'edit' ? "bg-yellow-500/20 text-yellow-500" :
-                            "bg-red-500/20 text-red-500"
-                          )}>
-                            {getActionIcon(file.action)}
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-mono text-sm">{file.path}</div>
-                            {file.purpose && (
-                              <div className="text-xs text-muted-foreground mt-0.5">{file.purpose}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" onClick={() => setCurrentPlan(null)} className="flex-1">
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleExecutePlan} 
-                  className="flex-1"
-                  disabled={!currentPlan.features?.some(f => f.approved)}
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Execute Plan
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Attached Files */}
         {attachedFiles.length > 0 && (
@@ -1056,13 +654,7 @@ Please create clean, production-ready code for this project.`;
                       handleSend();
                     }
                   }}
-                  placeholder={
-                    activeMode === 'plan' 
-                      ? "Describe your project to generate a plan..." 
-                      : activeMode === 'test'
-                      ? "Describe what you want to test..."
-                      : "Describe what you want to build..."
-                  }
+                  placeholder="Describe what you want to build (e.g., 'Create a login system with Supabase Auth')..."
                   className="w-full bg-background border border-input rounded-lg px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none min-h-[60px]"
                   rows={2}
                   disabled={isLoading}
@@ -1097,7 +689,7 @@ Please create clean, production-ready code for this project.`;
               <Button
                 size="default"
                 onClick={handleSend}
-                disabled={(!input.trim() && activeMode !== 'test') || isLoading}
+                disabled={!input.trim() || isLoading}
                 className="h-[52px] px-6"
               >
                 {isLoading ? (
