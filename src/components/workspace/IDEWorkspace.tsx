@@ -49,7 +49,31 @@ import {
   User,
   BookOpen,
   Clock,
-  ChevronLeft
+  ChevronLeft,
+  Target,
+  Brain,
+  History,
+  Package,
+  Layers,
+  ShieldCheck,
+  GitPullRequest,
+  GitMerge,
+  Rocket,
+  Palette,
+  Monitor,
+  Smartphone,
+  Globe,
+  Database,
+  Server,
+  Network,
+  MemoryStick,
+  HardDrive,
+  CircuitBoard,
+  TerminalSquare,
+  FileJson,
+  FileImage,
+  FolderPlus,
+  FolderSearch
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -64,15 +88,17 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
 import { PreviewPanel } from '@/components/preview/PreviewPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { useFileSystem } from '@/hooks/useFileSystem';
-import { useAIChat } from '@/hooks/useAIChat';
+import { UnifiedAIChatPanel } from './UnifiedAIChatPanel';
 import { toast } from 'sonner';
 
+// Types
 interface FileItem {
   id: string;
   name: string;
@@ -97,6 +123,7 @@ interface IDEWorkspaceProps {
   onPublish: () => void;
 }
 
+// Helper functions
 const getLanguage = (extension?: string) => {
   if (!extension) return 'plaintext';
   
@@ -125,15 +152,16 @@ const getFileIcon = (fileName: string) => {
     case 'ts': case 'tsx': return <FileCode className="w-4 h-4 text-blue-500" />;
     case 'html': return <FileCode className="w-4 h-4 text-orange-500" />;
     case 'css': return <FileCode className="w-4 h-4 text-pink-500" />;
-    case 'json': return <FileCode className="w-4 h-4 text-green-500" />;
+    case 'json': return <FileJson className="w-4 h-4 text-green-500" />;
     case 'md': return <FileText className="w-4 h-4 text-gray-500" />;
     case 'py': return <FileCode className="w-4 h-4 text-blue-400" />;
     case 'java': return <FileCode className="w-4 h-4 text-red-500" />;
+    case 'png': case 'jpg': case 'jpeg': case 'gif': return <FileImage className="w-4 h-4 text-purple-500" />;
     default: return <FileText className="w-4 h-4" />;
   }
 };
 
-// Enhanced File Explorer with Context Menu
+// File Explorer Component
 const FileExplorer = ({ 
   files, 
   activeFileId, 
@@ -192,19 +220,6 @@ const FileExplorer = ({
                 });
               } else {
                 onFileSelect(item);
-              }
-            }}
-            onDoubleClick={() => {
-              if (isFolder && !isRenaming) {
-                setCollapsedFolders(prev => {
-                  const newSet = new Set(prev);
-                  if (newSet.has(item.id)) {
-                    newSet.delete(item.id);
-                  } else {
-                    newSet.add(item.id);
-                  }
-                  return newSet;
-                });
               }
             }}
           >
@@ -302,7 +317,10 @@ const FileExplorer = ({
     <div className="h-full flex flex-col">
       <div className="p-3 border-b border-white/10">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium">EXPLORER</h3>
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            <FolderSearch className="w-4 h-4" />
+            EXPLORER
+          </h3>
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -325,7 +343,7 @@ const FileExplorer = ({
                   className="h-6 w-6"
                   onClick={() => onCreateFolder('new-folder')}
                 >
-                  <Folder className="w-3 h-3" />
+                  <FolderPlus className="w-3 h-3" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>New Folder</TooltipContent>
@@ -377,6 +395,14 @@ const FileExplorer = ({
           >
             JS
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => onCreateFile('app.tsx')}
+          >
+            TSX
+          </Button>
         </div>
       </div>
       
@@ -405,7 +431,7 @@ const FileExplorer = ({
   );
 };
 
-// Advanced Auto Scan & Fix System
+// Auto Scan & Fix System
 const AutoScanSystem = ({ 
   files, 
   onScanComplete,
@@ -613,7 +639,7 @@ const AutoScanSystem = ({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-blue-500" />
+            <ShieldCheck className="w-5 h-5 text-blue-500" />
             <CardTitle className="text-base">Auto Scan & Fix</CardTitle>
           </div>
           <Badge variant={scanResults?.issuesFound ? "destructive" : "secondary"}>
@@ -636,9 +662,9 @@ const AutoScanSystem = ({
             </div>
             <Progress value={scanProgress} className="h-2" />
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div>Security</div>
-              <div>Performance</div>
-              <div>Quality</div>
+              <div className="text-red-500">Security</div>
+              <div className="text-orange-500">Performance</div>
+              <div className="text-blue-500">Quality</div>
             </div>
           </div>
         ) : scanResults ? (
@@ -742,274 +768,114 @@ const AutoScanSystem = ({
   );
 };
 
-// AI Assistant Panel using useAIChat hook
+// AI Assistant Panel
 const AIAssistantPanel = ({ 
   onInsertCode,
+  onFileOperations,
   currentFiles 
 }: { 
   onInsertCode: (code: string) => void;
+  onFileOperations: (operations: any[]) => void;
   currentFiles: Array<{ path: string; content: string }>;
 }) => {
-  const [message, setMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [queuedMessage, setQueuedMessage] = useState<{ id: string; content: string; mode?: string } | null>(null);
   
-  // Use the existing useAIChat hook
-  const { 
-    messages: chatMessages, 
-    isLoading, 
-    currentMode, 
-    setCurrentMode, 
-    sendMessage, 
-    clearHistory 
-  } = useAIChat();
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [chatMessages]);
-
-  const handleSendMessage = async () => {
-    if (!message.trim() || isLoading) return;
-
-    try {
-      const response = await sendMessage(message.trim(), currentMode);
-      
-      // Extract code from response if available
-      if (response.code) {
-        // You can optionally auto-insert code here
-      }
-      
-      setMessage('');
-    } catch (error) {
-      console.error('Failed to send message:', error);
+  const quickActions = [
+    {
+      label: 'Create Login System',
+      prompt: 'Create a complete login system with email/password authentication and protected routes',
+      mode: 'plan' as const,
+      icon: <Shield className="w-3 h-3" />
+    },
+    {
+      label: 'Fix Code Issues',
+      prompt: 'Scan my code for issues and suggest fixes',
+      mode: 'test' as const,
+      icon: <Wrench className="w-3 h-3" />
+    },
+    {
+      label: 'Create Dashboard',
+      prompt: 'Create a responsive admin dashboard with charts and tables',
+      mode: 'plan' as const,
+      icon: <Monitor className="w-3 h-3" />
+    },
+    {
+      label: 'Optimize Performance',
+      prompt: 'Analyze my code for performance issues and suggest improvements',
+      mode: 'test' as const,
+      icon: <Zap className="w-3 h-3" />
     }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const handleInsertCode = (code: string) => {
-    onInsertCode(code);
-    toast.success('Code inserted into editor');
-  };
-
-  const handleClearHistory = () => {
-    if (confirm('Are you sure you want to clear chat history?')) {
-      clearHistory();
-    }
-  };
-
-  const modeIcons = {
-    chat: MessageSquare,
-    plan: Lightbulb,
-    test: Wrench
-  };
-
-  const ModeIcon = modeIcons[currentMode];
+  ];
 
   return (
-    <div className="h-full flex flex-col bg-[#0a0a14]">
-      {/* Header */}
-      <div className="p-4 border-b border-white/10">
-        <div className="flex items-center justify-between mb-4">
+    <div className="h-full flex flex-col">
+      {/* Quick Actions Header */}
+      <div className="p-3 border-b border-white/10">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-yellow-500/20 rounded-lg">
-              <Bot className="w-5 h-5 text-yellow-500" />
+            <div className="p-1.5 bg-gradient-to-br from-yellow-500/20 to-orange-500/20 rounded-lg">
+              <Brain className="w-4 h-4 text-yellow-500" />
             </div>
             <div>
-              <h3 className="font-semibold">AI Assistant</h3>
-              <p className="text-xs text-gray-400">Beta • Powered by GPT-4</p>
+              <h3 className="font-semibold text-sm">AI Assistant</h3>
+              <p className="text-xs text-gray-400">Powered by GPT-4</p>
             </div>
           </div>
-          <Badge variant="secondary" className="gap-1">
+          <Badge variant="secondary" className="gap-1 text-xs">
             <Activity className="w-3 h-3" />
             Online
           </Badge>
         </div>
         
-        {/* Mode Tabs */}
-        <Tabs value={currentMode} onValueChange={(v: 'chat' | 'plan' | 'test') => setCurrentMode(v)} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full">
-            <TabsTrigger value="chat" className="text-xs">
-              <MessageSquare className="w-3 h-3 mr-1" />
-              Chat
-            </TabsTrigger>
-            <TabsTrigger value="plan" className="text-xs">
-              <Lightbulb className="w-3 h-3 mr-1" />
-              Plan
-            </TabsTrigger>
-            <TabsTrigger value="test" className="text-xs">
-              <Wrench className="w-3 h-3 mr-1" />
-              Test
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 gap-2">
+          {quickActions.map((action, index) => (
+            <Button
+              key={index}
+              size="sm"
+              variant="outline"
+              className="text-xs h-8 bg-white/5 hover:bg-white/10 border-white/10"
+              onClick={() => setQueuedMessage({
+                id: Date.now().toString(),
+                content: action.prompt,
+                mode: action.mode
+              })}
+            >
+              {action.icon}
+              {action.label}
+            </Button>
+          ))}
+        </div>
       </div>
       
-      {/* Chat Messages */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
-          {chatMessages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                "rounded-lg p-3 max-w-[85%]",
-                msg.role === 'user' 
-                  ? "ml-auto bg-blue-600 text-white" 
-                  : "bg-white/5"
-              )}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                {msg.role === 'assistant' && (
-                  <Badge variant="outline" className="gap-1 text-xs">
-                    <ModeIcon className="w-3 h-3" />
-                    {msg.mode?.charAt(0).toUpperCase() + msg.mode?.slice(1) || 'AI'}
-                  </Badge>
-                )}
-                {msg.role === 'user' && (
-                  <Badge variant="outline" className="gap-1 text-xs">
-                    <User className="w-3 h-3" />
-                    You
-                  </Badge>
-                )}
-                <span className="text-xs opacity-50">
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-              
-              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-              
-              {msg.role === 'assistant' && msg.codeSnippet && (
-                <div className="mt-3">
-                  <div className="relative rounded-lg overflow-hidden border border-white/10">
-                    <div className="flex items-center justify-between px-3 py-2 bg-white/5">
-                      <div className="flex items-center gap-2">
-                        <FileCode className="w-4 h-4" />
-                        <span className="text-sm font-medium">Code</span>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-2"
-                        onClick={() => handleInsertCode(msg.codeSnippet!)}
-                      >
-                        <Copy className="w-3 h-3 mr-1" />
-                        <span className="text-xs">Insert</span>
-                      </Button>
-                    </div>
-                    <pre className="p-3 text-sm overflow-x-auto bg-black/20">
-                      <code>{msg.codeSnippet}</code>
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          
-          {isLoading && (
-            <div className="rounded-lg p-3 bg-white/5 max-w-[85%]">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">AI is thinking...</span>
-              </div>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </div>
-      </ScrollArea>
-      
-      {/* Input Area */}
-      <div className="p-4 border-t border-white/10">
-        <div className="flex gap-2">
-          <Textarea
-            placeholder="Describe what you want to build (e.g., 'Create a login system')"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="min-h-[60px] resize-none bg-white/5 border-white/10"
-            disabled={isLoading}
-          />
-          <Button 
-            onClick={handleSendMessage}
-            disabled={!message.trim() || isLoading}
-            className="self-end"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-          </Button>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-xs text-gray-400">
-            Press Enter to send • Shift+Enter for new line
-          </span>
-          <div className="flex gap-1">
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="h-6 text-xs"
-              onClick={handleClearHistory}
-            >
-              <Trash2 className="w-3 h-3 mr-1" />
-              Clear
-            </Button>
-            <Button size="sm" variant="ghost" className="h-6 text-xs">
-              <Settings className="w-3 h-3 mr-1" />
-              Settings
-            </Button>
-          </div>
-        </div>
-        
-        {/* Quick Actions */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs h-7"
-            onClick={() => sendMessage('Create a responsive navigation bar', 'chat')}
-            disabled={isLoading}
-          >
-            <Sparkles className="w-3 h-3 mr-1" />
-            Navigation
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs h-7"
-            onClick={() => sendMessage('Help me plan an e-commerce website', 'plan')}
-            disabled={isLoading}
-          >
-            <Lightbulb className="w-3 h-3 mr-1" />
-            Plan Project
-          </Button>
-        </div>
+      {/* Unified AI Chat Panel */}
+      <div className="flex-1 overflow-hidden">
+        <UnifiedAIChatPanel
+          onInsertCode={onInsertCode}
+          onFileOperations={onFileOperations}
+          currentFiles={currentFiles}
+          queuedMessage={queuedMessage}
+          onQueuedMessageHandled={() => setQueuedMessage(null)}
+          projectId="current-project"
+          initialMode="chat"
+        />
       </div>
     </div>
   );
 };
 
+// Main IDE Workspace Component
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([
     { 
-      id: '2', 
-      name: 'index.html', 
-      language: 'html',
-      icon: getFileIcon('index.html')
+      id: 'welcome', 
+      name: 'Welcome', 
+      language: 'markdown',
+      icon: <BookOpen className="w-4 h-4" />
     }
   ]);
   
-  const [activeTabId, setActiveTabId] = useState<string>('2');
+  const [activeTabId, setActiveTabId] = useState<string>('welcome');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -1111,6 +977,34 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     }
   }, [activeFile, updateFileContent]);
 
+  const handleFileOperations = useCallback((operations: any[]) => {
+    operations.forEach(async (op) => {
+      try {
+        switch (op.type) {
+          case 'create':
+            await handleCreateFile(op.path.split('/').pop() || 'new-file.txt');
+            break;
+          case 'edit':
+            // Find and update file content
+            const file = fileSystem.files.find(f => f.path === op.path);
+            if (file) {
+              await updateFileContent(file.id, op.content || '');
+            }
+            break;
+          case 'delete':
+            const fileToDelete = fileSystem.files.find(f => f.path === op.path);
+            if (fileToDelete) {
+              await handleDeleteFile(fileToDelete.id);
+            }
+            break;
+        }
+      } catch (error) {
+        console.error('File operation failed:', error);
+        toast.error(`Failed to ${op.type} ${op.path}`);
+      }
+    });
+  }, [handleCreateFile, fileSystem.files, updateFileContent, handleDeleteFile]);
+
   const currentFiles = useMemo(() => {
     const extractFiles = (items: FileItem[]): Array<{ path: string; content: string }> => {
       let files: Array<{ path: string; content: string }> = [];
@@ -1183,8 +1077,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             </Button>
             
             <Button variant="ghost" size="sm" onClick={() => setShowProjectHistory(true)}>
-              <FolderOpen className="w-4 h-4 mr-2" />
-              Projects
+              <History className="w-4 h-4 mr-2" />
+              History
             </Button>
             
             <Button 
@@ -1192,8 +1086,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700"
               onClick={onPublish}
             >
-              <Zap className="w-4 h-4 mr-2" />
-              Run Project
+              <Rocket className="w-4 h-4 mr-2" />
+              Publish
             </Button>
           </div>
         </div>
@@ -1213,8 +1107,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                     Explorer
                   </TabsTrigger>
                   <TabsTrigger value="scan" className="text-xs">
-                    <Shield className="w-4 h-4" />
-                    Scan & Fix
+                    <ShieldCheck className="w-4 h-4" />
+                    Scan
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -1266,6 +1160,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 activeTabId={activeTabId} 
                 onTabSelect={setActiveTabId} 
                 onTabClose={(id) => {
+                  if (id === 'welcome') return; // Don't close welcome tab
                   const filtered = openTabs.filter(t => t.id !== id);
                   setOpenTabs(filtered);
                   if (activeTabId === id && filtered.length > 0) {
@@ -1293,9 +1188,21 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
-                  <Code2 size={64} />
-                  <p>Select a file to start editing</p>
-                  <p className="text-sm">Or create a new file from the explorer</p>
+                  <CircuitBoard size={64} className="opacity-50" />
+                  <p className="text-lg">Welcome to Bogura IDE</p>
+                  <p className="text-sm text-center max-w-md opacity-75">
+                    A modern, AI-powered development environment with advanced features
+                  </p>
+                  <div className="flex gap-4 mt-4">
+                    <Button variant="outline" onClick={() => handleCreateFile('index.html')}>
+                      <FileCode className="w-4 h-4 mr-2" />
+                      New HTML File
+                    </Button>
+                    <Button variant="outline" onClick={() => handleCreateFile('app.tsx')}>
+                      <Code2 className="w-4 h-4 mr-2" />
+                      New React App
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1307,7 +1214,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               )}>
                 <div className="flex items-center justify-between p-2 border-b">
                   <div className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4" />
+                    <TerminalSquare className="w-4 h-4" />
                     <span className="text-sm font-medium">Terminal</span>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => setShowTerminal(false)}>
@@ -1345,7 +1252,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             )}>
               <div className="flex items-center justify-between p-3 border-b">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-yellow-500" />
+                  <Brain className="w-4 h-4 text-yellow-500" />
                   <span className="font-medium">AI Assistant</span>
                   <Badge variant="secondary" className="ml-1">Beta</Badge>
                 </div>
@@ -1361,6 +1268,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               <div className="flex-1 overflow-hidden">
                 <AIAssistantPanel 
                   onInsertCode={handleInsertCode}
+                  onFileOperations={handleFileOperations}
                   currentFiles={currentFiles}
                 />
               </div>
@@ -1378,7 +1286,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               className="flex items-center gap-1 hover:bg-white/10 px-2 py-0.5 rounded"
               onClick={() => setShowTerminal(!showTerminal)}
             >
-              <Terminal className="w-3 h-3" />
+              <TerminalSquare className="w-3 h-3" />
               Terminal
             </button>
             <span>Branch: main</span>
