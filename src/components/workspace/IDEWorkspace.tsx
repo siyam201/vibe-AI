@@ -122,6 +122,7 @@ interface IDEWorkspaceProps {
   projectName: string;
   onPublish: () => void;
   initialFiles?: FileItem[];
+  projectId?: string; // 添加可选的 projectId
 }
 
 // Helper functions
@@ -769,9 +770,22 @@ const AutoScanSystem = ({
   );
 };
 
+// 生成 UUID 的函数
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 // Main IDE Workspace Component
-// Main IDE Workspace Component
-export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEWorkspaceProps) => {
+export const IDEWorkspace = ({ 
+  projectName, 
+  projectId: propProjectId, 
+  onPublish, 
+  initialFiles = [] 
+}: IDEWorkspaceProps) => {
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([
     { 
       id: 'welcome', 
@@ -790,6 +804,11 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'scan'>('explorer');
   const [showProjectHistory, setShowProjectHistory] = useState(false);
+
+  // 生成有效的 projectId
+  const projectId = useMemo(() => {
+    return propProjectId || generateUUID();
+  }, [propProjectId]);
 
   // 使用 Project History Hook 进行撤销/重做
   const {
@@ -1398,7 +1417,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
                   onInsertCode={handleInsertCode}
                   onFileOperations={handleFileOperations}
                   currentFiles={currentFiles}
-                  projectId="current-project"
+                  projectId={projectId}  // 使用有效的 UUID
                   initialMode="chat"
                 />
               </div>
