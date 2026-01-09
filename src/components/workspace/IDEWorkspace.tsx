@@ -30,7 +30,12 @@ import {
   FileCode,
   FileText,
   Image,
-  Database
+  Database,
+  Folder,
+  File,
+  Trash2,
+  Edit2,
+  Plus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,8 +43,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { FileExplorer, FileItem } from '@/components/files/FileExplorer';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
 import { PreviewPanel } from '@/components/preview/PreviewPanel';
@@ -49,6 +56,16 @@ import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory } from '@/hooks/useProjectHistory';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+
+interface FileItem {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  extension?: string;
+  content?: string;
+  children?: FileItem[];
+  lastModified?: string;
+}
 
 interface IDEWorkspaceProps {
   projectName: string;
@@ -93,6 +110,281 @@ const getLanguage = (extension?: string) => {
   return map[ext] || 'plaintext';
 };
 
+// ফাইল এক্সপ্লোরার কম্পোনেন্ট
+const FileExplorer = ({ 
+  files, 
+  activeFileId, 
+  collapsedFolders,
+  onToggleFolder,
+  onFileSelect,
+  onFileCreate,
+  onFileDelete,
+  onFileRename
+}: {
+  files: FileItem[];
+  activeFileId: string;
+  collapsedFolders: Set<string>;
+  onToggleFolder: (folderId: string) => void;
+  onFileSelect: (file: FileItem) => void;
+  onFileCreate: (parentId: string | null, name: string, type: 'file' | 'folder') => void;
+  onFileDelete: (fileId: string) => void;
+  onFileRename: (fileId: string, newName: string) => void;
+}) => {
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createType, setCreateType] = useState<'file' | 'folder'>('file');
+  const [createName, setCreateName] = useState('');
+
+  const renderFileTree = (items: FileItem[], depth = 0) => {
+    return items.map(item => {
+      const isFolder = item.type === 'folder';
+      const isCollapsed = collapsedFolders.has(item.id);
+      const isActive = activeFileId === item.id;
+      const isRenaming = renamingId === item.id;
+
+      return (
+        <div key={item.id}>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div
+                className={cn(
+                  "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm",
+                  isActive 
+                    ? "bg-blue-600 text-white" 
+                    : "hover:bg-white/10 text-gray-300"
+                )}
+                style={{ paddingLeft: `${depth * 20 + 12}px` }}
+                onClick={() => {
+                  if (isFolder) {
+                    onToggleFolder(item.id);
+                  } else {
+                    onFileSelect(item);
+                  }
+                }}
+              >
+                {isFolder ? (
+                  <button
+                    className="w-4 h-4 flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFolder(item.id);
+                    }}
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                  </button>
+                ) : (
+                  <div className="w-4" />
+                )}
+                
+                {isFolder ? (
+                  <Folder className="w-4 h-4 text-blue-400" />
+                ) : (
+                  getFileIcon(item.name)
+                )}
+                
+                {isRenaming ? (
+                  <Input
+                    autoFocus
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        onFileRename(item.id, newName);
+                        setRenamingId(null);
+                      } else if (e.key === 'Escape') {
+                        setRenamingId(null);
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-6 text-sm"
+                  />
+                ) : (
+                  <span className="truncate">{item.name}</span>
+                )}
+              </div>
+            </ContextMenuTrigger>
+            
+            <ContextMenuContent className="w-48">
+              {isFolder ? (
+                <>
+                  <ContextMenuItem onClick={() => {
+                    setCreateType('file');
+                    setCreateName('');
+                    setShowCreateDialog(true);
+                  }}>
+                    <File className="w-4 h-4 mr-2" />
+                    New File
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => {
+                    setCreateType('folder');
+                    setCreateName('');
+                    setShowCreateDialog(true);
+                  }}>
+                    <Folder className="w-4 h-4 mr-2" />
+                    New Folder
+                  </ContextMenuItem>
+                </>
+              ) : (
+                <ContextMenuItem onClick={() => {
+                  setRenamingId(item.id);
+                  setNewName(item.name);
+                }}>
+                  <Edit2 className="w-4 h-4 mr-2" />
+                  Rename
+                </ContextMenuItem>
+              )}
+              
+              <ContextMenuItem 
+                className="text-red-600"
+                onClick={() => {
+                  if (confirm(`Delete ${item.name}?`)) {
+                    onFileDelete(item.id);
+                  }
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+
+          {isFolder && !isCollapsed && item.children && (
+            <div className="ml-4">
+              {renderFileTree(item.children, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="p-3 border-b border-white/10">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">EXPLORER</h3>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => {
+              setCreateType('file');
+              setCreateName('');
+              setShowCreateDialog(true);
+            }}
+          >
+            <Plus className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto p-2">
+        {files.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <Folder className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No files yet</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => {
+                setCreateType('file');
+                setCreateName('');
+                setShowCreateDialog(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create First File
+            </Button>
+          </div>
+        ) : (
+          renderFileTree(files)
+        )}
+      </div>
+
+      {/* Create File/Folder Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Create New {createType === 'file' ? 'File' : 'Folder'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">
+                {createType === 'file' ? 'File Name' : 'Folder Name'}
+              </Label>
+              <Input
+                id="name"
+                placeholder={`Enter ${createType} name...`}
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && createName.trim()) {
+                    onFileCreate(null, createName, createType);
+                    setShowCreateDialog(false);
+                    setCreateName('');
+                  }
+                }}
+              />
+              {createType === 'file' && (
+                <p className="text-xs text-gray-500">
+                  Include extension (e.g., .js, .tsx, .html)
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateDialog(false);
+                  setCreateName('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (createName.trim()) {
+                    onFileCreate(null, createName, createType);
+                    setShowCreateDialog(false);
+                    setCreateName('');
+                  }
+                }}
+                disabled={!createName.trim()}
+              >
+                Create
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+// ফাইল আইকন ফাংশন
+const getFileIcon = (fileName: string) => {
+  const extension = fileName.split('.').pop()?.toLowerCase();
+  switch (extension) {
+    case 'js': case 'jsx': return <FileCode className="w-4 h-4 text-yellow-500" />;
+    case 'ts': case 'tsx': return <FileCode className="w-4 h-4 text-blue-500" />;
+    case 'html': return <FileCode className="w-4 h-4 text-orange-500" />;
+    case 'css': case 'scss': case 'less': return <FileCode className="w-4 h-4 text-pink-500" />;
+    case 'json': return <FileCode className="w-4 h-4 text-green-500" />;
+    case 'md': return <FileText className="w-4 h-4 text-gray-500" />;
+    case 'py': return <FileCode className="w-4 h-4 text-blue-400" />;
+    case 'java': return <FileCode className="w-4 h-4 text-red-500" />;
+    case 'sql': return <Database className="w-4 h-4 text-blue-300" />;
+    case 'png': case 'jpg': case 'jpeg': case 'svg': return <Image className="w-4 h-4 text-purple-500" />;
+    default: return <FileText className="w-4 h-4" />;
+  }
+};
+
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const {
     projects,
@@ -105,11 +397,49 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   } = useProjectHistory();
 
   // --- States ---
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string>('');
+  const [files, setFiles] = useState<FileItem[]>([
+    {
+      id: '1',
+      name: 'src',
+      type: 'folder',
+      children: [
+        {
+          id: '2',
+          name: 'index.html',
+          type: 'file',
+          extension: 'html',
+          content: '<!DOCTYPE html>\n<html>\n<head>\n  <title>My App</title>\n</head>\n<body>\n  <div id="root"></div>\n</body>\n</html>'
+        },
+        {
+          id: '3',
+          name: 'style.css',
+          type: 'file',
+          extension: 'css',
+          content: 'body {\n  margin: 0;\n  padding: 0;\n  font-family: sans-serif;\n}'
+        }
+      ]
+    },
+    {
+      id: '4',
+      name: 'README.md',
+      type: 'file',
+      extension: 'md',
+      content: '# My Project\n\nThis is a sample project.'
+    }
+  ]);
+  
+  const [openTabs, setOpenTabs] = useState<EditorTab[]>([
+    { 
+      id: '2', 
+      name: 'index.html', 
+      language: 'html',
+      icon: getFileIcon('index.html')
+    }
+  ]);
+  
+  const [activeTabId, setActiveTabId] = useState<string>('2');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [isSyncing, setIsSyncing] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showProjectHistory, setShowProjectHistory] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -123,7 +453,59 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [showCollaborators, setShowCollaborators] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState(14);
 
-  const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
+  // ফাইল অপারেশনের জন্য হেল্পার ফাংশন
+  const addFileToTree = (tree: FileItem[], parentId: string | null, newFile: FileItem): FileItem[] => {
+    if (!parentId) {
+      return [...tree, newFile];
+    }
+    
+    return tree.map(item => {
+      if (item.id === parentId && item.type === 'folder') {
+        return {
+          ...item,
+          children: [...(item.children || []), newFile]
+        };
+      }
+      if (item.children) {
+        return {
+          ...item,
+          children: addFileToTree(item.children, parentId, newFile)
+        };
+      }
+      return item;
+    });
+  };
+
+  const deleteFileFromTree = (tree: FileItem[], fileId: string): FileItem[] => {
+    return tree.filter(item => {
+      if (item.id === fileId) return false;
+      if (item.children) {
+        item.children = deleteFileFromTree(item.children, fileId);
+      }
+      return true;
+    });
+  };
+
+  const renameFileInTree = (tree: FileItem[], fileId: string, newName: string): FileItem[] => {
+    return tree.map(item => {
+      if (item.id === fileId) {
+        const extension = item.type === 'file' ? newName.split('.').pop() : undefined;
+        return { 
+          ...item, 
+          name: newName,
+          extension,
+          lastModified: new Date().toISOString()
+        };
+      }
+      if (item.children) {
+        return {
+          ...item,
+          children: renameFileInTree(item.children, fileId, newName)
+        };
+      }
+      return item;
+    });
+  };
 
   // ১. প্রজেক্ট ডাটা লোড করা
   useEffect(() => {
@@ -140,26 +522,49 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           .single();
 
         if (data?.files) {
-          const loadedFiles = data.files as unknown as FileItem[];
-          setFiles(loadedFiles);
-          if (openTabs.length === 0 && loadedFiles.length > 0) {
-            const first = loadedFiles[0];
-            setOpenTabs([{ 
-              id: first.id, 
-              name: first.name, 
-              language: getLanguage(first.extension),
-              icon: getFileIcon(first.name)
-            }]);
-            setActiveTabId(first.id);
+          try {
+            const loadedFiles = data.files as FileItem[];
+            setFiles(loadedFiles);
+            if (loadedFiles.length > 0) {
+              // Find first file to open
+              const findFirstFile = (items: FileItem[]): FileItem | null => {
+                for (const item of items) {
+                  if (item.type === 'file') return item;
+                  if (item.children) {
+                    const found = findFirstFile(item.children);
+                    if (found) return found;
+                  }
+                }
+                return null;
+              };
+              
+              const firstFile = findFirstFile(loadedFiles);
+              if (firstFile) {
+                setOpenTabs([{ 
+                  id: firstFile.id, 
+                  name: firstFile.name, 
+                  language: getLanguage(firstFile.extension),
+                  icon: getFileIcon(firstFile.name)
+                }]);
+                setActiveTabId(firstFile.id);
+              }
+            }
+          } catch (error) {
+            console.error('Error loading files:', error);
+            toast.error('Failed to load files');
           }
         }
 
         // Load saved settings
         if (data?.settings) {
-          const settings = data.settings as any;
-          setDarkMode(settings.darkMode ?? true);
-          setEditorFontSize(settings.editorFontSize ?? 14);
-          setLayoutMode(settings.layoutMode ?? 'split');
+          try {
+            const settings = data.settings as any;
+            setDarkMode(settings.darkMode ?? true);
+            setEditorFontSize(settings.editorFontSize ?? 14);
+            setLayoutMode(settings.layoutMode ?? 'split');
+          } catch (error) {
+            console.error('Error loading settings:', error);
+          }
         }
 
         await loadProject(target.id);
@@ -172,28 +577,36 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
   // ২. অটো-সেভ লজিক
   useEffect(() => {
-    if (isSyncing || !currentProject?.id || files.length === 0) return;
+    if (isSyncing || !currentProject?.id) return;
 
     const autoSave = async () => {
       setSaveStatus('saving');
-      const { error } = await supabase
-        .from('projects')
-        .update({ 
-          files: files as any, 
-          settings: {
-            darkMode,
-            editorFontSize,
-            layoutMode
-          },
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', currentProject.id);
+      try {
+        const { error } = await supabase
+          .from('projects')
+          .update({ 
+            files: files as any, 
+            settings: {
+              darkMode,
+              editorFontSize,
+              layoutMode
+            },
+            updated_at: new Date().toISOString() 
+          })
+          .eq('id', currentProject.id);
 
-      if (!error) {
-        updateProjectFiles(currentProject.id, files);
-        setSaveStatus('saved');
-      } else {
+        if (!error) {
+          updateProjectFiles(currentProject.id, files);
+          setSaveStatus('saved');
+          toast.success('Auto-saved successfully');
+        } else {
+          setSaveStatus('error');
+          toast.error('Failed to save');
+        }
+      } catch (error) {
+        console.error('Save error:', error);
         setSaveStatus('error');
+        toast.error('Failed to save');
       }
     };
 
@@ -230,25 +643,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     return findFile(files);
   }, [files, activeTabId]);
 
-  // ৫. ফাইল আইকন নির্ধারণ
-  const getFileIcon = (fileName: string) => {
-    const extension = fileName.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'js': case 'jsx': return <FileCode className="w-4 h-4 text-yellow-500" />;
-      case 'ts': case 'tsx': return <FileCode className="w-4 h-4 text-blue-500" />;
-      case 'html': return <FileCode className="w-4 h-4 text-orange-500" />;
-      case 'css': case 'scss': case 'less': return <FileCode className="w-4 h-4 text-pink-500" />;
-      case 'json': return <FileCode className="w-4 h-4 text-green-500" />;
-      case 'md': return <FileText className="w-4 h-4 text-gray-500" />;
-      case 'py': return <FileCode className="w-4 h-4 text-blue-400" />;
-      case 'java': return <FileCode className="w-4 h-4 text-red-500" />;
-      case 'sql': return <Database className="w-4 h-4 text-blue-300" />;
-      case 'png': case 'jpg': case 'jpeg': case 'svg': return <Image className="w-4 h-4 text-purple-500" />;
-      default: return <FileText className="w-4 h-4" />;
-    }
-  };
-
-  // ৬. টার্মিনাল রান ফাংশন
+  // ৫. টার্মিনাল রান ফাংশন
   const runTerminalCommand = async (command: string) => {
     setTerminalOutput(prev => [...prev, `$ ${command}`]);
     
@@ -258,6 +653,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         setTerminalOutput(prev => [...prev, 'Starting development server...', 'Server running on http://localhost:3000']);
       } else if (command === 'git status') {
         setTerminalOutput(prev => [...prev, 'On branch main', 'Your branch is up to date with origin/main.', 'nothing to commit, working tree clean']);
+      } else if (command === 'ls') {
+        setTerminalOutput(prev => [...prev, 'README.md', 'src/', 'package.json']);
       }
     }, 500);
   };
@@ -376,11 +773,6 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               Projects
             </Button>
             
-            <Button variant="ghost" size="sm" onClick={() => setShowCollaborators(true)}>
-              <Users className="w-4 h-4 mr-2" />
-              <Badge variant="secondary" className="ml-1">2</Badge>
-            </Button>
-            
             <Button 
               size="sm" 
               className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700"
@@ -419,7 +811,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               </Tabs>
 
               {/* File Explorer / Active View */}
-              <div className="flex-1 overflow-auto p-2">
+              <div className="flex-1 overflow-auto">
                 {activeView === 'explorer' && (
                   <FileExplorer 
                     files={files} 
@@ -459,21 +851,28 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                         children: type === 'folder' ? [] : undefined,
                         lastModified: new Date().toISOString()
                       };
-                      setFiles(prev => [...prev, newFile]);
+                      setFiles(prev => addFileToTree(prev, parentId, newFile));
+                      
+                      if (type === 'file') {
+                        setOpenTabs([...openTabs, { 
+                          id: newFile.id, 
+                          name: newFile.name, 
+                          language: getLanguage(newFile.extension),
+                          icon: getFileIcon(newFile.name)
+                        }]);
+                        setActiveTabId(newFile.id);
+                      }
                     }}
                     onFileDelete={(fileId) => {
-                      setFiles(prev => prev.filter(f => f.id !== fileId));
+                      setFiles(prev => deleteFileFromTree(prev, fileId));
                       setOpenTabs(prev => prev.filter(t => t.id !== fileId));
+                      if (activeTabId === fileId && openTabs.length > 1) {
+                        const remainingTabs = openTabs.filter(t => t.id !== fileId);
+                        setActiveTabId(remainingTabs[remainingTabs.length-1].id);
+                      }
                     }}
                     onFileRename={(fileId, newName) => {
-                      setFiles(prev => prev.map(f => 
-                        f.id === fileId ? { 
-                          ...f, 
-                          name: newName, 
-                          extension: newName.split('.').pop(),
-                          lastModified: new Date().toISOString()
-                        } : f
-                      ));
+                      setFiles(prev => renameFileInTree(prev, fileId, newName));
                       setOpenTabs(prev => prev.map(t => 
                         t.id === fileId ? { ...t, name: newName } : t
                       ));
@@ -482,20 +881,22 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 )}
 
                 {activeView === 'search' && (
-                  <div className="space-y-2">
+                  <div className="p-3">
                     <Input 
                       placeholder="Search in files..." 
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="mb-2"
+                      className="mb-4"
                     />
-                    {/* Search results would go here */}
+                    <div className="text-sm text-muted-foreground">
+                      Search results will appear here
+                    </div>
                   </div>
                 )}
 
                 {activeView === 'git' && (
-                  <div className="space-y-2">
-                    <div className="text-sm text-muted-foreground p-2">
+                  <div className="p-3">
+                    <div className="text-sm text-muted-foreground">
                       Git features coming soon...
                     </div>
                   </div>
@@ -508,16 +909,26 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 darkMode ? "border-white/10" : "border-gray-200"
               )}>
                 <div className="flex items-center justify-between">
-                  <span>Lines: {activeFile?.content?.split('\n').length || 0}</span>
+                  <span>Files: {files.length}</span>
                   <span>UTF-8</span>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-6"
-                    onClick={() => setEditorFontSize(fs => Math.min(fs + 1, 24))}
-                  >
-                    A+
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 w-6 p-0"
+                      onClick={() => setEditorFontSize(fs => Math.max(10, fs - 1))}
+                    >
+                      A-
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 w-6 p-0"
+                      onClick={() => setEditorFontSize(fs => Math.min(fs + 1, 24))}
+                    >
+                      A+
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -537,7 +948,9 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 onTabClose={(id) => {
                   const filtered = openTabs.filter(t => t.id !== id);
                   setOpenTabs(filtered);
-                  if (activeTabId === id && filtered.length > 0) setActiveTabId(filtered[filtered.length-1].id);
+                  if (activeTabId === id && filtered.length > 0) {
+                    setActiveTabId(filtered[filtered.length-1].id);
+                  }
                 }} 
               />
             </div>
@@ -559,6 +972,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                       <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
                         <Code2 size={64} />
                         <p>Select a file to start editing</p>
+                        <p className="text-sm">Or create a new file from the explorer</p>
                       </div>
                     )}
                   </div>
@@ -582,6 +996,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
                       <Code2 size={64} />
                       <p>Select a file to start editing</p>
+                      <p className="text-sm">Or create a new file from the explorer</p>
                     </div>
                   )}
                 </div>
@@ -608,9 +1023,23 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                   </Button>
                 </div>
                 <div className="p-2 font-mono text-sm overflow-auto h-[calc(100%-40px)]">
+                  <div className="mb-2 text-green-400">$ Welcome to Bogura IDE Terminal</div>
                   {terminalOutput.map((line, i) => (
                     <div key={i} className="whitespace-pre-wrap">{line}</div>
                   ))}
+                  <div className="flex items-center mt-2">
+                    <span className="text-green-400 mr-2">$</span>
+                    <input
+                      className="flex-1 bg-transparent border-none outline-none"
+                      placeholder="Type command..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          runTerminalCommand(e.currentTarget.value);
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -640,7 +1069,29 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               <div className="flex-1 overflow-hidden">
                 <UnifiedAIChatPanel 
                   onInsertCode={(code) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + code)} 
-                  onFileOperations={executeOperations} 
+                  onFileOperations={(ops) => {
+                    // Handle file operations from AI
+                    ops.forEach(op => {
+                      if (op.type === 'create') {
+                        const newFile: FileItem = {
+                          id: crypto.randomUUID(),
+                          name: op.path,
+                          type: 'file',
+                          extension: op.path.split('.').pop(),
+                          content: op.content || '',
+                          lastModified: new Date().toISOString()
+                        };
+                        setFiles(prev => [...prev, newFile]);
+                        setOpenTabs([...openTabs, { 
+                          id: newFile.id, 
+                          name: newFile.name, 
+                          language: getLanguage(newFile.extension),
+                          icon: getFileIcon(newFile.name)
+                        }]);
+                        setActiveTabId(newFile.id);
+                      }
+                    });
+                  }} 
                   currentFiles={files.map(f => ({ path: f.name, content: f.content || '' }))}
                   theme={darkMode ? 'dark' : 'light'}
                 />
