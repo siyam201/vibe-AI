@@ -770,6 +770,7 @@ const AutoScanSystem = ({
 };
 
 // Main IDE Workspace Component
+// Main IDE Workspace Component
 export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEWorkspaceProps) => {
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([
     { 
@@ -792,7 +793,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
 
   // 使用 Project History Hook 进行撤销/重做
   const {
-    currentState: files,
+    currentState: files = [],
     pushState,
     undo,
     redo,
@@ -811,12 +812,12 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
     isLoading: fileOperationsLoading
   } = useFileOperations();
 
-  // 初始化文件
+  // 初始化文件 - 确保 files 总是数组
   useEffect(() => {
-    if (initialFiles.length > 0 && files.length === 0) {
+    if (initialFiles?.length > 0 && (!files || files.length === 0)) {
       pushState(initialFiles);
     }
-  }, [initialFiles, files.length, pushState]);
+  }, [initialFiles, files, pushState]);
 
   // 自动保存模拟
   useEffect(() => {
@@ -830,6 +831,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
   }, [activeTabId, saveStatus]);
 
   const activeFile = useMemo(() => {
+    if (!files || files.length === 0) return null;
+    
     const findFile = (items: FileItem[]): FileItem | null => {
       for (const item of items) {
         if (item.id === activeTabId) return item;
@@ -845,6 +848,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
 
   const updateFileContent = useCallback(async (fileId: string, content: string) => {
     try {
+      if (!files) return;
+      
       // 更新文件内容
       const updatedFiles = files.map(item => {
         if (item.id === fileId) {
@@ -861,7 +866,9 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await updateFileContentOperation(fileId, content);
+      if (updateFileContentOperation) {
+        await updateFileContentOperation(fileId, content);
+      }
       
       toast.success('File saved successfully');
     } catch (error) {
@@ -881,11 +888,14 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
         lastModified: new Date().toISOString()
       };
       
-      const updatedFiles = [...files, newFile];
+      const currentFiles = files || [];
+      const updatedFiles = [...currentFiles, newFile];
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await createFileOperation(name, '');
+      if (createFileOperation) {
+        await createFileOperation(name, '');
+      }
       
       const tab: EditorTab = {
         id: newFile.id,
@@ -913,11 +923,14 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
         lastModified: new Date().toISOString()
       };
       
-      const updatedFiles = [...files, newFolder];
+      const currentFiles = files || [];
+      const updatedFiles = [...currentFiles, newFolder];
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await createFolderOperation(name);
+      if (createFolderOperation) {
+        await createFolderOperation(name);
+      }
       
       toast.success(`Created folder ${name}`);
     } catch (error) {
@@ -928,6 +941,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
 
   const handleDeleteFile = useCallback(async (fileId: string) => {
     try {
+      if (!files) return;
+      
       const removeFile = (items: FileItem[]): FileItem[] => {
         return items.filter(item => {
           if (item.id === fileId) return false;
@@ -942,7 +957,9 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await deleteFileOperation(fileId);
+      if (deleteFileOperation) {
+        await deleteFileOperation(fileId);
+      }
       
       setOpenTabs(prev => prev.filter(t => t.id !== fileId));
       if (activeTabId === fileId && openTabs.length > 1) {
@@ -958,6 +975,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
 
   const handleRenameFile = useCallback(async (fileId: string, newName: string) => {
     try {
+      if (!files) return;
+      
       const renameFileInTree = (items: FileItem[]): FileItem[] => 
         items.map(item => {
           if (item.id === fileId) {
@@ -977,7 +996,9 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await renameFileOperation(fileId, newName);
+      if (renameFileOperation) {
+        await renameFileOperation(fileId, newName);
+      }
       
       setOpenTabs(prev => prev.map(t => 
         t.id === fileId ? { ...t, name: newName } : t
@@ -1001,11 +1022,14 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
         lastModified: new Date().toISOString()
       };
       
-      const updatedFiles = [...files, newFile];
+      const currentFiles = files || [];
+      const updatedFiles = [...currentFiles, newFile];
       pushState(updatedFiles);
       
       // 调用文件操作 hook
-      await uploadFileOperation(file);
+      if (uploadFileOperation) {
+        await uploadFileOperation(file);
+      }
       
       const tab: EditorTab = {
         id: newFile.id,
@@ -1039,6 +1063,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
   }, [activeFile, updateFileContent]);
 
   const handleFileOperations = useCallback((operations: any[]) => {
+    if (!files) return;
+    
     operations.forEach(async (op) => {
       try {
         switch (op.type) {
@@ -1066,6 +1092,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
   }, [files, handleCreateFile, updateFileContent, handleDeleteFile]);
 
   const currentFiles = useMemo(() => {
+    if (!files || files.length === 0) return [];
+    
     const extractFiles = (items: FileItem[]): Array<{ path: string; content: string }> => {
       let result: Array<{ path: string; content: string }> = [];
       
@@ -1090,6 +1118,8 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
 
   // Helper function to find file by ID
   const findFileById = useCallback((items: FileItem[], fileId: string): FileItem | null => {
+    if (!items || items.length === 0) return null;
+    
     for (const item of items) {
       if (item.id === fileId) return item;
       if (item.children) {
@@ -1220,7 +1250,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
               <div className="flex-1 overflow-hidden">
                 {activeView === 'explorer' ? (
                   <FileExplorer 
-                    files={files} 
+                    files={files || []} 
                     activeFileId={activeTabId} 
                     onFileSelect={(file) => {
                       if (!openTabs.find(t => t.id === file.id)) {
@@ -1243,7 +1273,7 @@ export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEW
                 ) : (
                   <div className="p-3">
                     <AutoScanSystem 
-                      files={files} 
+                      files={files || []} 
                       onScanComplete={handleScanComplete}
                       onAutoFix={handleAutoFix}
                     />
