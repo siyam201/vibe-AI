@@ -18,6 +18,9 @@ import {
   Paperclip,
   MessageSquare,
   Brain,
+  Target,
+  Sparkles,
+  FolderPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -91,8 +94,10 @@ export const UnifiedAIChatPanel = ({
   const [showHistory, setShowHistory] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // File upload handler
   const handleFiles = useCallback((files: File[]) => {
@@ -161,7 +166,16 @@ export const UnifiedAIChatPanel = ({
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  const sendMessage = async (messageText: string) => {
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  }, [input]);
+
+  const sendMessage = async (messageText: string, isPlanRequest = false) => {
     if (!messageText.trim() || isLoading) return;
 
     // Ensure we have a conversation
@@ -184,10 +198,16 @@ export const UnifiedAIChatPanel = ({
       ? `\n\n[Attached ${attachedFiles.length} file(s): ${attachedFiles.map(f => f.name).join(', ')}]`
       : '';
 
+    // Prepare the message content
+    let finalMessage = messageText.trim();
+    if (isPlanRequest) {
+      finalMessage = `Create a detailed plan for: ${messageText.trim()}`;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: messageText.trim() + attachmentInfo,
+      content: finalMessage + attachmentInfo,
       timestamp: new Date(),
       attachments: [...attachedFiles],
     };
@@ -197,10 +217,11 @@ export const UnifiedAIChatPanel = ({
     setInput('');
     setAttachedFiles([]);
     setIsLoading(true);
+    setIsCreatingPlan(isPlanRequest);
 
     // Save user message to DB if logged in
     if (user && convId) {
-      await addMessage(convId, 'user', messageText.trim());
+      await addMessage(convId, 'user', finalMessage);
     }
 
     // Prepare messages for API with file context
@@ -227,8 +248,9 @@ export const UnifiedAIChatPanel = ({
         },
         body: JSON.stringify({ 
           messages: apiMessages,
-          // Tell the AI to respond in a structured format for features/files
-          instructions: "Please provide a clear response with features and files needed. Format features as bullet points and files as a list."
+          instructions: isPlanRequest 
+            ? "Create a detailed project plan with: 1) Project title and description 2) List of features with priorities 3) Files to create/edit 4) Estimated time 5) Dependencies and warnings. Format clearly with headers and bullet points."
+            : "Please provide a clear response with features and files needed. Format features as bullet points and files as a list."
         }),
       });
 
@@ -342,12 +364,18 @@ export const UnifiedAIChatPanel = ({
       }
     } finally {
       setIsLoading(false);
+      setIsCreatingPlan(false);
     }
   };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
     await sendMessage(input);
+  };
+
+  const handleCreatePlan = async () => {
+    if (!input.trim() || isLoading) return;
+    await sendMessage(input, true);
   };
 
   useEffect(() => {
@@ -419,7 +447,7 @@ export const UnifiedAIChatPanel = ({
         />
       )}
 
-      {/* Main Chat Area */}
+      {/* Main Chat Area - Fixed Layout */}
       <div 
         className="flex-1 flex flex-col relative"
         onDragOver={handleDragOver}
@@ -436,8 +464,8 @@ export const UnifiedAIChatPanel = ({
           </div>
         )}
 
-        {/* Minimal Header */}
-        <div className="p-4 border-b border-border">
+        {/* Fixed Header */}
+        <div className="p-4 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
@@ -473,7 +501,7 @@ export const UnifiedAIChatPanel = ({
         </div>
 
         {/* Simple Chat Mode Indicator */}
-        <div className="px-4 py-2 border-b border-border">
+        <div className="px-4 py-2 border-b border-border bg-background/95 backdrop-blur-sm sticky top-[68px] z-30">
           <div className="flex items-center justify-center">
             <div className="bg-muted/50 px-3 py-1 rounded-full">
               <span className="text-xs font-medium flex items-center gap-1">
@@ -484,21 +512,21 @@ export const UnifiedAIChatPanel = ({
           </div>
         </div>
 
-        {/* Messages Area */}
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4 max-w-2xl mx-auto">
+        {/* Messages Area - Auto Scroll */}
+        <ScrollArea className="flex-1">
+          <div className="p-4 space-y-4 max-w-2xl mx-auto">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={cn(
-                  "flex gap-3",
+                  "flex gap-3 animate-in fade-in-50",
                   message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
                 )}
               >
                 {/* Avatar */}
                 <div className="shrink-0">
                   <div className={cn(
-                    "w-7 h-7 rounded-full flex items-center justify-center",
+                    "w-7 h-7 rounded-full flex items-center justify-center ring-1 ring-border",
                     message.role === 'user' 
                       ? "bg-primary text-primary-foreground" 
                       : "bg-muted"
@@ -513,16 +541,16 @@ export const UnifiedAIChatPanel = ({
 
                 {/* Message Content */}
                 <div className={cn(
-                  "flex-1 rounded-lg p-3 text-sm",
+                  "flex-1 rounded-lg p-3 text-sm max-w-[85%]",
                   message.role === 'user'
-                    ? "bg-primary/10 text-foreground"
-                    : "bg-muted text-foreground"
+                    ? "bg-primary/10 text-foreground border border-primary/20"
+                    : "bg-muted text-foreground border border-border"
                 )}>
                   {/* Attachments */}
                   {message.attachments && message.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
                       {message.attachments.map((file) => (
-                        <div key={file.id} className="bg-background rounded p-2 flex items-center gap-2">
+                        <div key={file.id} className="bg-background rounded p-2 flex items-center gap-2 border">
                           {file.type === 'image' ? (
                             <img src={file.url} alt={file.name} className="w-12 h-12 object-cover rounded" />
                           ) : (
@@ -547,7 +575,7 @@ export const UnifiedAIChatPanel = ({
                   )}
 
                   {/* Message text - render markdown-like content */}
-                  <div className="whitespace-pre-wrap">
+                  <div className="whitespace-pre-wrap break-words">
                     {message.content.split('\n').map((line, idx) => {
                       // Check if line is a header
                       if (line.startsWith('# ')) {
@@ -559,30 +587,54 @@ export const UnifiedAIChatPanel = ({
                       if (line.startsWith('### ')) {
                         return <h3 key={idx} className="text-sm font-medium mt-2 mb-1">{line.substring(4)}</h3>;
                       }
+                      // Check for bold text
+                      if (line.includes('**')) {
+                        const parts = line.split('**');
+                        return (
+                          <p key={idx} className="mb-1">
+                            {parts.map((part, i) => 
+                              i % 2 === 1 ? (
+                                <strong key={i} className="font-semibold">{part}</strong>
+                              ) : (
+                                part
+                              )
+                            )}
+                          </p>
+                        );
+                      }
                       // Check if line is a feature/item with bullet point
                       if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
                         const text = line.trim().substring(2);
-                        const isFeature = text.includes('Feature') || text.includes('feature');
-                        const isFile = text.toLowerCase().includes('.txt') || 
-                                      text.toLowerCase().includes('.tsx') || 
-                                      text.toLowerCase().includes('.ts') ||
-                                      text.toLowerCase().includes('.jsx') ||
-                                      text.toLowerCase().includes('.js');
+                        const isFeature = text.includes('Feature') || text.includes('feature') || text.toLowerCase().includes('priority');
+                        const isFile = /\.(tsx|ts|jsx|js|css|html|txt|md|json)$/i.test(text);
                         
                         return (
                           <div key={idx} className="flex items-start gap-2 mt-1">
-                            <span className="text-muted-foreground">•</span>
+                            <span className="text-muted-foreground mt-1">•</span>
                             <span className={cn(
-                              isFeature && "font-medium",
-                              isFile && "font-mono text-sm"
+                              isFeature && "font-medium text-foreground",
+                              isFile && "font-mono text-sm bg-muted px-1.5 py-0.5 rounded"
                             )}>
                               {text}
                             </span>
                           </div>
                         );
                       }
+                      // Check for numbered list
+                      if (/^\d+\.\s/.test(line.trim())) {
+                        const text = line.trim().replace(/^\d+\.\s/, '');
+                        return (
+                          <div key={idx} className="flex items-start gap-2 mt-1">
+                            <span className="text-muted-foreground font-medium">{line.trim().match(/^\d+/)?.[0]}.</span>
+                            <span>{text}</span>
+                          </div>
+                        );
+                      }
                       // Regular text
-                      return <p key={idx} className="mb-1">{line}</p>;
+                      if (line.trim()) {
+                        return <p key={idx} className="mb-1">{line}</p>;
+                      }
+                      return <br key={idx} />;
                     })}
                   </div>
 
@@ -591,7 +643,7 @@ export const UnifiedAIChatPanel = ({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="mt-2 h-6 w-6"
+                      className="mt-2 h-6 w-6 hover:bg-muted"
                       onClick={() => handleCopy(message.content, message.id)}
                     >
                       {copiedId === message.id ? (
@@ -606,9 +658,11 @@ export const UnifiedAIChatPanel = ({
             ))}
 
             {isLoading && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-muted">
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-muted border border-border animate-pulse">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">Generating response...</span>
+                <span className="text-sm">
+                  {isCreatingPlan ? 'Creating plan...' : 'Generating response...'}
+                </span>
               </div>
             )}
 
@@ -616,36 +670,70 @@ export const UnifiedAIChatPanel = ({
           </div>
         </ScrollArea>
 
-        {/* Attached Files */}
+        {/* Attached Files - Fixed Position */}
         {attachedFiles.length > 0 && (
-          <div className="px-4 py-2 border-t border-border flex gap-2 overflow-x-auto">
-            {attachedFiles.map((file) => (
-              <div key={file.id} className="bg-muted rounded p-2 flex items-center gap-2 text-xs shrink-0">
-                {file.type === 'image' ? (
-                  <img src={file.url} alt={file.name} className="w-6 h-6 object-cover rounded" />
-                ) : (
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                )}
-                <span>{file.name}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-4 w-4"
-                  onClick={() => removeAttachment(file.id)}
-                >
-                  <X className="w-2.5 h-2.5" />
-                </Button>
+          <div className="px-4 py-2 border-t border-border bg-background/95 backdrop-blur-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <FolderPlus className="w-4 h-4 text-muted-foreground" />
+                <span className="font-medium">{attachedFiles.length} file(s) attached</span>
               </div>
-            ))}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setAttachedFiles([])}
+                className="h-6 w-6"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto mt-2">
+              {attachedFiles.map((file) => (
+                <div key={file.id} className="bg-muted rounded p-2 flex items-center gap-2 text-xs shrink-0 border">
+                  {file.type === 'image' ? (
+                    <img src={file.url} alt={file.name} className="w-6 h-6 object-cover rounded" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-muted-foreground" />
+                  )}
+                  <span className="max-w-[120px] truncate">{file.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-4 w-4"
+                    onClick={() => removeAttachment(file.id)}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Input Area */}
-        <div className="p-4 border-t border-border">
+        {/* Input Area - Fixed at Bottom */}
+        <div className="p-4 border-t border-border bg-background/95 backdrop-blur-sm sticky bottom-0 z-40">
           <div className="relative">
+            {/* Plan Create Button */}
+            <div className="flex items-center gap-2 mb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCreatePlan}
+                disabled={!input.trim() || isLoading}
+                className="text-xs"
+              >
+                <Target className="w-3 h-3 mr-1" />
+                Create Plan
+              </Button>
+              <div className="text-xs text-muted-foreground">
+                {isCreatingPlan ? 'Creating detailed plan...' : 'Click to generate a structured plan'}
+              </div>
+            </div>
+
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <textarea
+                  ref={textareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -654,9 +742,9 @@ export const UnifiedAIChatPanel = ({
                       handleSend();
                     }
                   }}
-                  placeholder="Describe what you want to build (e.g., 'Create a login system with Supabase Auth')..."
-                  className="w-full bg-background border border-input rounded-lg px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none min-h-[60px]"
-                  rows={2}
+                  placeholder="Describe what you want to build or ask for help..."
+                  className="w-full bg-background border border-input rounded-lg px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none min-h-[60px] max-h-[120px]"
+                  rows={1}
                   disabled={isLoading}
                 />
                 <div className="absolute bottom-2 right-2 flex items-center gap-1">
@@ -665,6 +753,7 @@ export const UnifiedAIChatPanel = ({
                     size="icon-sm"
                     className="h-6 w-6"
                     onClick={() => fileInputRef.current?.click()}
+                    title="Attach files"
                   >
                     <Paperclip className="w-3.5 h-3.5" />
                   </Button>
@@ -673,6 +762,7 @@ export const UnifiedAIChatPanel = ({
                     size="icon-sm"
                     className="h-6 w-6"
                     onClick={() => fileInputRef.current?.click()}
+                    title="Upload images"
                   >
                     <Image className="w-3.5 h-3.5" />
                   </Button>
@@ -690,7 +780,7 @@ export const UnifiedAIChatPanel = ({
                 size="default"
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading}
-                className="h-[52px] px-6"
+                className="h-[52px] px-6 min-w-[60px]"
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -699,9 +789,24 @@ export const UnifiedAIChatPanel = ({
                 )}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              Press Enter to send • Shift+Enter for new line
-            </p>
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-xs text-muted-foreground">
+                Press Enter to send • Shift+Enter for new line
+              </p>
+              <div className="flex items-center gap-2">
+                {currentFiles.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {currentFiles.length} project files
+                  </span>
+                )}
+                {isCreatingPlan && (
+                  <div className="flex items-center gap-1 text-xs text-blue-500">
+                    <Sparkles className="w-3 h-3" />
+                    Creating Plan
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
