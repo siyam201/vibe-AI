@@ -35,7 +35,8 @@ import {
   File,
   Trash2,
   Edit2,
-  Plus
+  Plus,
+  MoreVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -44,8 +45,9 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
@@ -54,6 +56,7 @@ import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { useFileOperations } from '@/hooks/useFileOperations';
 import { useProjectHistory } from '@/hooks/useProjectHistory';
+import { useFileSystem } from '@/hooks/useFileSystem';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -64,6 +67,7 @@ interface FileItem {
   extension?: string;
   content?: string;
   children?: FileItem[];
+  path?: string;
   lastModified?: string;
 }
 
@@ -105,43 +109,51 @@ const getLanguage = (extension?: string) => {
     'svg': 'svg',
     'png': 'image',
     'jpg': 'image',
-    'jpeg': 'image'
+    'jpeg': 'image',
+    'txt': 'plaintext'
   };
   return map[ext] || 'plaintext';
 };
 
-// ফাইল এক্সপ্লোরার কম্পোনেন্ট
+// ফাইল এক্সপ্লোরার কম্পোনেন্ট - আপনার পুরোনো ফাইল API ব্যবহার করে
 const FileExplorer = ({ 
   files, 
   activeFileId, 
   collapsedFolders,
   onToggleFolder,
   onFileSelect,
-  onFileCreate,
-  onFileDelete,
-  onFileRename
+  onCreateFile,
+  onCreateFolder,
+  onDeleteFile,
+  onRenameFile,
+  onUploadFile
 }: {
   files: FileItem[];
   activeFileId: string;
   collapsedFolders: Set<string>;
   onToggleFolder: (folderId: string) => void;
   onFileSelect: (file: FileItem) => void;
-  onFileCreate: (parentId: string | null, name: string, type: 'file' | 'folder') => void;
-  onFileDelete: (fileId: string) => void;
-  onFileRename: (fileId: string, newName: string) => void;
+  onCreateFile: (parentId: string | null, name: string) => void;
+  onCreateFolder: (parentId: string | null, name: string) => void;
+  onDeleteFile: (fileId: string, filePath: string) => void;
+  onRenameFile: (fileId: string, oldPath: string, newName: string) => void;
+  onUploadFile: (file: File, parentPath?: string) => void;
 }) => {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createType, setCreateType] = useState<'file' | 'folder'>('file');
   const [createName, setCreateName] = useState('');
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const renderFileTree = (items: FileItem[], depth = 0) => {
+  const renderFileTree = (items: FileItem[], depth = 0, parentPath = '') => {
     return items.map(item => {
       const isFolder = item.type === 'folder';
       const isCollapsed = collapsedFolders.has(item.id);
       const isActive = activeFileId === item.id;
       const isRenaming = renamingId === item.id;
+      const currentPath = parentPath ? `${parentPath}/${item.name}` : item.name;
 
       return (
         <div key={item.id}>
@@ -149,7 +161,7 @@ const FileExplorer = ({
             <ContextMenuTrigger asChild>
               <div
                 className={cn(
-                  "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm",
+                  "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm group",
                   isActive 
                     ? "bg-blue-600 text-white" 
                     : "hover:bg-white/10 text-gray-300"
@@ -162,10 +174,15 @@ const FileExplorer = ({
                     onFileSelect(item);
                   }
                 }}
+                onDoubleClick={() => {
+                  if (isFolder) {
+                    onToggleFolder(item.id);
+                  }
+                }}
               >
                 {isFolder ? (
                   <button
-                    className="w-4 h-4 flex items-center justify-center"
+                    className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded"
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleFolder(item.id);
@@ -193,18 +210,93 @@ const FileExplorer = ({
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        onFileRename(item.id, newName);
+                      if (e.key === 'Enter' && newName.trim()) {
+                        onRenameFile(item.id, currentPath, newName);
                         setRenamingId(null);
+                        setNewName('');
                       } else if (e.key === 'Escape') {
                         setRenamingId(null);
+                        setNewName('');
                       }
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="h-6 text-sm"
+                    className="h-6 text-sm flex-1"
+                    onBlur={() => {
+                      setRenamingId(null);
+                      setNewName('');
+                    }}
                   />
                 ) : (
-                  <span className="truncate">{item.name}</span>
+                  <span className="truncate flex-1">{item.name}</span>
+                )}
+                
+                {!isRenaming && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="w-3 h-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      {isFolder && (
+                        <>
+                          <DropdownMenuItem 
+                            onClick={() => {
+                              setSelectedFolderId(item.id);
+                              setCreateType('file');
+                              setCreateName('');
+                              setShowCreateDialog(true);
+                            }}
+                          >
+                            <File className="w-4 h-4 mr-2" />
+                            New File
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => {
+                              setSelectedFolderId(item.id);
+                              setCreateType('folder');
+                              setCreateName('');
+                              setShowCreateDialog(true);
+                            }}
+                          >
+                            <Folder className="w-4 h-4 mr-2" />
+                            New Folder
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload File
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      <DropdownMenuItem 
+                        onClick={() => {
+                          setRenamingId(item.id);
+                          setNewName(item.name);
+                        }}
+                      >
+                        <Edit2 className="w-4 h-4 mr-2" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="text-red-600"
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete "${item.name}"?`)) {
+                            onDeleteFile(item.id, currentPath);
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
             </ContextMenuTrigger>
@@ -213,6 +305,7 @@ const FileExplorer = ({
               {isFolder ? (
                 <>
                   <ContextMenuItem onClick={() => {
+                    setSelectedFolderId(item.id);
                     setCreateType('file');
                     setCreateName('');
                     setShowCreateDialog(true);
@@ -221,12 +314,17 @@ const FileExplorer = ({
                     New File
                   </ContextMenuItem>
                   <ContextMenuItem onClick={() => {
+                    setSelectedFolderId(item.id);
                     setCreateType('folder');
                     setCreateName('');
                     setShowCreateDialog(true);
                   }}>
                     <Folder className="w-4 h-4 mr-2" />
                     New Folder
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload File
                   </ContextMenuItem>
                 </>
               ) : (
@@ -242,8 +340,8 @@ const FileExplorer = ({
               <ContextMenuItem 
                 className="text-red-600"
                 onClick={() => {
-                  if (confirm(`Delete ${item.name}?`)) {
-                    onFileDelete(item.id);
+                  if (confirm(`Are you sure you want to delete "${item.name}"?`)) {
+                    onDeleteFile(item.id, currentPath);
                   }
                 }}
               >
@@ -255,7 +353,7 @@ const FileExplorer = ({
 
           {isFolder && !isCollapsed && item.children && (
             <div className="ml-4">
-              {renderFileTree(item.children, depth + 1)}
+              {renderFileTree(item.children, depth + 1, currentPath)}
             </div>
           )}
         </div>
@@ -263,22 +361,112 @@ const FileExplorer = ({
     });
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onUploadFile(file, selectedFolderId || '');
+      event.target.value = ''; // Reset input
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-3 border-b border-white/10">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-medium">EXPLORER</h3>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    setSelectedFolderId(null);
+                    setCreateType('file');
+                    setCreateName('');
+                    setShowCreateDialog(true);
+                  }}
+                >
+                  <File className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New File</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    setSelectedFolderId(null);
+                    setCreateType('folder');
+                    setCreateName('');
+                    setShowCreateDialog(true);
+                  }}
+                >
+                  <Folder className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New Folder</TooltipContent>
+            </Tooltip>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Upload File</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+        
+        {/* Quick actions */}
+        <div className="flex gap-1">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-6"
+            size="sm"
+            className="flex-1 text-xs h-6"
             onClick={() => {
-              setCreateType('file');
-              setCreateName('');
-              setShowCreateDialog(true);
+              onCreateFile(null, 'index.html');
+              toast.success('Created index.html');
             }}
           >
-            <Plus className="w-3 h-3" />
+            HTML
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => {
+              onCreateFile(null, 'style.css');
+              toast.success('Created style.css');
+            }}
+          >
+            CSS
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => {
+              onCreateFile(null, 'script.js');
+              toast.success('Created script.js');
+            }}
+          >
+            JS
           </Button>
         </div>
       </div>
@@ -287,12 +475,14 @@ const FileExplorer = ({
         {files.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Folder className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No files yet</p>
+            <p className="text-sm mb-1">No files yet</p>
+            <p className="text-xs opacity-75 mb-4">Create or upload files to get started</p>
             <Button
               variant="outline"
               size="sm"
-              className="mt-4"
+              className="mt-2"
               onClick={() => {
+                setSelectedFolderId(null);
                 setCreateType('file');
                 setCreateName('');
                 setShowCreateDialog(true);
@@ -311,7 +501,9 @@ const FileExplorer = ({
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Create New {createType === 'file' ? 'File' : 'Folder'}</DialogTitle>
+            <DialogTitle>
+              Create New {createType === 'file' ? 'File' : 'Folder'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -325,42 +517,51 @@ const FileExplorer = ({
                 onChange={(e) => setCreateName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && createName.trim()) {
-                    onFileCreate(null, createName, createType);
+                    if (createType === 'file') {
+                      onCreateFile(selectedFolderId, createName);
+                    } else {
+                      onCreateFolder(selectedFolderId, createName);
+                    }
                     setShowCreateDialog(false);
                     setCreateName('');
                   }
                 }}
+                autoFocus
               />
               {createType === 'file' && (
                 <p className="text-xs text-gray-500">
-                  Include extension (e.g., .js, .tsx, .html)
+                  Include extension (e.g., .js, .tsx, .html, .css)
                 </p>
               )}
             </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateDialog(false);
+                setCreateName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (createName.trim()) {
+                  if (createType === 'file') {
+                    onCreateFile(selectedFolderId, createName);
+                  } else {
+                    onCreateFolder(selectedFolderId, createName);
+                  }
                   setShowCreateDialog(false);
                   setCreateName('');
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  if (createName.trim()) {
-                    onFileCreate(null, createName, createType);
-                    setShowCreateDialog(false);
-                    setCreateName('');
-                  }
-                }}
-                disabled={!createName.trim()}
-              >
-                Create
-              </Button>
-            </div>
-          </div>
+                }
+              }}
+              disabled={!createName.trim()}
+            >
+              Create {createType === 'file' ? 'File' : 'Folder'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -373,17 +574,26 @@ const getFileIcon = (fileName: string) => {
   switch (extension) {
     case 'js': case 'jsx': return <FileCode className="w-4 h-4 text-yellow-500" />;
     case 'ts': case 'tsx': return <FileCode className="w-4 h-4 text-blue-500" />;
-    case 'html': return <FileCode className="w-4 h-4 text-orange-500" />;
+    case 'html': case 'htm': return <FileCode className="w-4 h-4 text-orange-500" />;
     case 'css': case 'scss': case 'less': return <FileCode className="w-4 h-4 text-pink-500" />;
     case 'json': return <FileCode className="w-4 h-4 text-green-500" />;
     case 'md': return <FileText className="w-4 h-4 text-gray-500" />;
     case 'py': return <FileCode className="w-4 h-4 text-blue-400" />;
     case 'java': return <FileCode className="w-4 h-4 text-red-500" />;
     case 'sql': return <Database className="w-4 h-4 text-blue-300" />;
-    case 'png': case 'jpg': case 'jpeg': case 'svg': return <Image className="w-4 h-4 text-purple-500" />;
+    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': 
+      return <Image className="w-4 h-4 text-purple-500" />;
+    case 'txt': return <FileText className="w-4 h-4 text-gray-400" />;
     default: return <FileText className="w-4 h-4" />;
   }
 };
+
+// Upload icon component
+const Upload = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  </svg>
+);
 
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const {
@@ -396,50 +606,25 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     duplicateProject
   } = useProjectHistory();
 
+  // ফাইল সিস্টেম হুক ব্যবহার করুন (আপনার পুরোনো ফাইল API)
+  const {
+    files,
+    setFiles,
+    createFile,
+    createFolder,
+    deleteFile,
+    renameFile,
+    uploadFile,
+    updateFileContent: fileSystemUpdateContent,
+    isLoading: fileSystemLoading,
+    error: fileSystemError
+  } = useFileSystem(projectName);
+
   // --- States ---
-  const [files, setFiles] = useState<FileItem[]>([
-    {
-      id: '1',
-      name: 'src',
-      type: 'folder',
-      children: [
-        {
-          id: '2',
-          name: 'index.html',
-          type: 'file',
-          extension: 'html',
-          content: '<!DOCTYPE html>\n<html>\n<head>\n  <title>My App</title>\n</head>\n<body>\n  <div id="root"></div>\n</body>\n</html>'
-        },
-        {
-          id: '3',
-          name: 'style.css',
-          type: 'file',
-          extension: 'css',
-          content: 'body {\n  margin: 0;\n  padding: 0;\n  font-family: sans-serif;\n}'
-        }
-      ]
-    },
-    {
-      id: '4',
-      name: 'README.md',
-      type: 'file',
-      extension: 'md',
-      content: '# My Project\n\nThis is a sample project.'
-    }
-  ]);
-  
-  const [openTabs, setOpenTabs] = useState<EditorTab[]>([
-    { 
-      id: '2', 
-      name: 'index.html', 
-      language: 'html',
-      icon: getFileIcon('index.html')
-    }
-  ]);
-  
-  const [activeTabId, setActiveTabId] = useState<string>('2');
+  const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showProjectHistory, setShowProjectHistory] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -450,62 +635,10 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'search' | 'git' | 'extensions'>('explorer');
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [showCollaborators, setShowCollaborators] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState(14);
 
-  // ফাইল অপারেশনের জন্য হেল্পার ফাংশন
-  const addFileToTree = (tree: FileItem[], parentId: string | null, newFile: FileItem): FileItem[] => {
-    if (!parentId) {
-      return [...tree, newFile];
-    }
-    
-    return tree.map(item => {
-      if (item.id === parentId && item.type === 'folder') {
-        return {
-          ...item,
-          children: [...(item.children || []), newFile]
-        };
-      }
-      if (item.children) {
-        return {
-          ...item,
-          children: addFileToTree(item.children, parentId, newFile)
-        };
-      }
-      return item;
-    });
-  };
-
-  const deleteFileFromTree = (tree: FileItem[], fileId: string): FileItem[] => {
-    return tree.filter(item => {
-      if (item.id === fileId) return false;
-      if (item.children) {
-        item.children = deleteFileFromTree(item.children, fileId);
-      }
-      return true;
-    });
-  };
-
-  const renameFileInTree = (tree: FileItem[], fileId: string, newName: string): FileItem[] => {
-    return tree.map(item => {
-      if (item.id === fileId) {
-        const extension = item.type === 'file' ? newName.split('.').pop() : undefined;
-        return { 
-          ...item, 
-          name: newName,
-          extension,
-          lastModified: new Date().toISOString()
-        };
-      }
-      if (item.children) {
-        return {
-          ...item,
-          children: renameFileInTree(item.children, fileId, newName)
-        };
-      }
-      return item;
-    });
-  };
+  // ফাইল অপারেশনের হুক (আপনার পুরোনো হুক)
+  const { executeOperations } = useFileOperations(files, setFiles, setActiveTabId, setOpenTabs);
 
   // ১. প্রজেক্ট ডাটা লোড করা
   useEffect(() => {
@@ -525,33 +658,33 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           try {
             const loadedFiles = data.files as FileItem[];
             setFiles(loadedFiles);
-            if (loadedFiles.length > 0) {
-              // Find first file to open
-              const findFirstFile = (items: FileItem[]): FileItem | null => {
-                for (const item of items) {
-                  if (item.type === 'file') return item;
-                  if (item.children) {
-                    const found = findFirstFile(item.children);
-                    if (found) return found;
-                  }
+            
+            // Find and open the first file
+            const findFirstFile = (items: FileItem[]): FileItem | null => {
+              for (const item of items) {
+                if (item.type === 'file') return item;
+                if (item.children) {
+                  const found = findFirstFile(item.children);
+                  if (found) return found;
                 }
-                return null;
-              };
-              
-              const firstFile = findFirstFile(loadedFiles);
-              if (firstFile) {
-                setOpenTabs([{ 
-                  id: firstFile.id, 
-                  name: firstFile.name, 
-                  language: getLanguage(firstFile.extension),
-                  icon: getFileIcon(firstFile.name)
-                }]);
-                setActiveTabId(firstFile.id);
               }
+              return null;
+            };
+            
+            const firstFile = findFirstFile(loadedFiles);
+            if (firstFile) {
+              setOpenTabs([{ 
+                id: firstFile.id, 
+                name: firstFile.name, 
+                language: getLanguage(firstFile.extension),
+                icon: getFileIcon(firstFile.name),
+                path: firstFile.path
+              }]);
+              setActiveTabId(firstFile.id);
             }
           } catch (error) {
             console.error('Error loading files:', error);
-            toast.error('Failed to load files');
+            toast.error('Failed to load project files');
           }
         }
 
@@ -568,16 +701,179 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         }
 
         await loadProject(target.id);
+      } else {
+        // If no project found, create sample files
+        const sampleFiles: FileItem[] = [
+          {
+            id: '1',
+            name: 'src',
+            type: 'folder',
+            children: [
+              {
+                id: '2',
+                name: 'index.html',
+                type: 'file',
+                extension: 'html',
+                content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${projectName}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <h1>Welcome to ${projectName}</h1>
+        <p>Start coding here...</p>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>`
+              },
+              {
+                id: '3',
+                name: 'style.css',
+                type: 'file',
+                extension: 'css',
+                content: `* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#app {
+    background: white;
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-width: 600px;
+    text-align: center;
+}
+
+h1 {
+    color: #333;
+    margin-bottom: 1rem;
+}
+
+p {
+    color: #666;
+    line-height: 1.6;
+}`
+              },
+              {
+                id: '4',
+                name: 'script.js',
+                type: 'file',
+                extension: 'js',
+                content: `console.log('Hello from ${projectName}!');
+
+// Sample interactive code
+document.addEventListener('DOMContentLoaded', () => {
+    const app = document.getElementById('app');
+    const button = document.createElement('button');
+    button.textContent = 'Click Me';
+    button.style.cssText = \`
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 20px;
+        transition: background 0.3s;
+    \`;
+    
+    button.addEventListener('click', () => {
+        button.textContent = 'Clicked!';
+        button.style.background = '#45a049';
+        setTimeout(() => {
+            button.textContent = 'Click Me Again';
+            button.style.background = '#4CAF50';
+        }, 1000);
+    });
+    
+    app.appendChild(button);
+});`
+              }
+            ]
+          },
+          {
+            id: '5',
+            name: 'README.md',
+            type: 'file',
+            extension: 'md',
+            content: `# ${projectName}
+
+Welcome to your new project!
+
+## Getting Started
+
+This is a sample project created in Bogura IDE.
+
+## Project Structure
+
+\`\`\`
+project/
+├── src/
+│   ├── index.html
+│   ├── style.css
+│   └── script.js
+└── README.md
+\`\`\`
+
+## Features
+
+- Modern HTML5, CSS3, and JavaScript
+- Responsive design
+- Interactive components
+- Clean and maintainable code
+
+## Development
+
+To start developing:
+
+1. Edit the files in the \`src\` folder
+2. Use the Preview panel to see changes
+3. Click "Run Project" to test your application
+
+## Tips
+
+- Use AI Assistant for code suggestions
+- Create new files with appropriate extensions
+- Organize your code in folders
+- Save frequently (auto-save is enabled)`
+          }
+        ];
+        
+        setFiles(sampleFiles);
+        setOpenTabs([{ 
+          id: '2', 
+          name: 'index.html', 
+          language: 'html',
+          icon: getFileIcon('index.html')
+        }]);
+        setActiveTabId('2');
       }
       setIsSyncing(false);
     };
 
-    if (projects.length > 0) initWorkspace();
-  }, [projectName, projects.length]);
+    initWorkspace();
+  }, [projectName, projects]);
 
   // ২. অটো-সেভ লজিক
   useEffect(() => {
-    if (isSyncing || !currentProject?.id) return;
+    if (isSyncing || !currentProject?.id || files.length === 0 || fileSystemLoading) return;
 
     const autoSave = async () => {
       setSaveStatus('saving');
@@ -598,35 +894,53 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         if (!error) {
           updateProjectFiles(currentProject.id, files);
           setSaveStatus('saved');
-          toast.success('Auto-saved successfully');
         } else {
           setSaveStatus('error');
-          toast.error('Failed to save');
+          toast.error('Failed to save project');
         }
       } catch (error) {
         console.error('Save error:', error);
         setSaveStatus('error');
-        toast.error('Failed to save');
+        toast.error('Failed to save project');
       }
     };
 
     const timer = setTimeout(autoSave, 3000);
     return () => clearTimeout(timer);
-  }, [files, currentProject?.id, isSyncing, darkMode, editorFontSize, layoutMode]);
+  }, [files, currentProject?.id, isSyncing, darkMode, editorFontSize, layoutMode, fileSystemLoading]);
 
-  // ৩. ফাইল আপডেট ফাংশন
-  const updateFileContent = useCallback((fileId: string, content: string) => {
-    setFiles(prev => {
-      const updateNode = (nodes: FileItem[]): FileItem[] => {
-        return nodes.map(node => {
-          if (node.id === fileId) return { ...node, content, lastModified: new Date().toISOString() };
-          if (node.children) return { ...node, children: updateNode(node.children) };
-          return node;
-        });
-      };
-      return updateNode(prev);
-    });
-  }, []);
+  // ৩. ফাইল আপডেট ফাংশন - fileSystem হুক ব্যবহার করে
+  const updateFileContent = useCallback(async (fileId: string, content: string) => {
+    // Find the file to get its path
+    const findFile = (items: FileItem[]): FileItem | null => {
+      for (const item of items) {
+        if (item.id === fileId) return item;
+        if (item.children) {
+          const res = findFile(item.children);
+          if (res) return res;
+        }
+      }
+      return null;
+    };
+    
+    const file = findFile(files);
+    if (file && file.path) {
+      // Use your fileSystem hook to update content
+      await fileSystemUpdateContent(file.path, content);
+      
+      // Also update local state
+      setFiles(prev => {
+        const updateNode = (nodes: FileItem[]): FileItem[] => {
+          return nodes.map(node => {
+            if (node.id === fileId) return { ...node, content, lastModified: new Date().toISOString() };
+            if (node.children) return { ...node, children: updateNode(node.children) };
+            return node;
+          });
+        };
+        return updateNode(prev);
+      });
+    }
+  }, [files, fileSystemUpdateContent]);
 
   // ৪. একটিভ ফাইল
   const activeFile = useMemo(() => {
@@ -643,28 +957,234 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
     return findFile(files);
   }, [files, activeTabId]);
 
-  // ৫. টার্মিনাল রান ফাংশন
-  const runTerminalCommand = async (command: string) => {
-    setTerminalOutput(prev => [...prev, `$ ${command}`]);
-    
-    // Simulate command execution
-    setTimeout(() => {
-      if (command.startsWith('npm run')) {
-        setTerminalOutput(prev => [...prev, 'Starting development server...', 'Server running on http://localhost:3000']);
-      } else if (command === 'git status') {
-        setTerminalOutput(prev => [...prev, 'On branch main', 'Your branch is up to date with origin/main.', 'nothing to commit, working tree clean']);
-      } else if (command === 'ls') {
-        setTerminalOutput(prev => [...prev, 'README.md', 'src/', 'package.json']);
+  // ৫. ফাইল ক্রিয়েট হ্যান্ডলার
+  const handleCreateFile = useCallback(async (parentId: string | null, fileName: string) => {
+    try {
+      const parentFile = parentId ? findFileById(files, parentId) : null;
+      const parentPath = parentFile?.path || '';
+      const fullPath = parentPath ? `${parentPath}/${fileName}` : fileName;
+      
+      // Use your fileSystem hook to create file
+      await createFile(fullPath, '');
+      
+      // Generate new file item
+      const newFile: FileItem = {
+        id: crypto.randomUUID(),
+        name: fileName,
+        type: 'file',
+        extension: fileName.split('.').pop(),
+        content: '',
+        path: fullPath,
+        lastModified: new Date().toISOString()
+      };
+      
+      // Add to local state
+      if (parentId && parentFile) {
+        setFiles(prev => addFileToFolder(prev, parentId, newFile));
+      } else {
+        setFiles(prev => [...prev, newFile]);
       }
-    }, 500);
-  };
+      
+      // Open in new tab
+      setOpenTabs(prev => [...prev, { 
+        id: newFile.id, 
+        name: newFile.name, 
+        language: getLanguage(newFile.extension),
+        icon: getFileIcon(newFile.name),
+        path: newFile.path
+      }]);
+      setActiveTabId(newFile.id);
+      
+      toast.success(`Created ${fileName}`);
+    } catch (error) {
+      console.error('Error creating file:', error);
+      toast.error('Failed to create file');
+    }
+  }, [files, createFile]);
 
-  if (isSyncing) {
+  // ৬. ফোল্ডার ক্রিয়েট হ্যান্ডলার
+  const handleCreateFolder = useCallback(async (parentId: string | null, folderName: string) => {
+    try {
+      const parentFile = parentId ? findFileById(files, parentId) : null;
+      const parentPath = parentFile?.path || '';
+      const fullPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+      
+      // Use your fileSystem hook to create folder
+      await createFolder(fullPath);
+      
+      // Generate new folder item
+      const newFolder: FileItem = {
+        id: crypto.randomUUID(),
+        name: folderName,
+        type: 'folder',
+        children: [],
+        path: fullPath,
+        lastModified: new Date().toISOString()
+      };
+      
+      // Add to local state
+      if (parentId && parentFile) {
+        setFiles(prev => addFileToFolder(prev, parentId, newFolder));
+      } else {
+        setFiles(prev => [...prev, newFolder]);
+      }
+      
+      toast.success(`Created folder ${folderName}`);
+    } catch (error) {
+      console.error('Error creating folder:', error);
+      toast.error('Failed to create folder');
+    }
+  }, [files, createFolder]);
+
+  // ৭. ফাইল ডিলিট হ্যান্ডলার
+  const handleDeleteFile = useCallback(async (fileId: string, filePath: string) => {
+    try {
+      // Use your fileSystem hook to delete file
+      await deleteFile(filePath);
+      
+      // Remove from local state
+      setFiles(prev => deleteFileFromTree(prev, fileId));
+      setOpenTabs(prev => prev.filter(t => t.id !== fileId));
+      
+      if (activeTabId === fileId && openTabs.length > 1) {
+        const remainingTabs = openTabs.filter(t => t.id !== fileId);
+        setActiveTabId(remainingTabs[remainingTabs.length-1].id);
+      }
+      
+      toast.success('File deleted successfully');
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      toast.error('Failed to delete file');
+    }
+  }, [deleteFile, activeTabId, openTabs]);
+
+  // ৮. ফাইল রিনেম হ্যান্ডলার
+  const handleRenameFile = useCallback(async (fileId: string, oldPath: string, newName: string) => {
+    try {
+      // Use your fileSystem hook to rename file
+      await renameFile(oldPath, newName);
+      
+      // Update local state
+      setFiles(prev => renameFileInTree(prev, fileId, newName));
+      setOpenTabs(prev => prev.map(t => 
+        t.id === fileId ? { ...t, name: newName } : t
+      ));
+      
+      toast.success('File renamed successfully');
+    } catch (error) {
+      console.error('Error renaming file:', error);
+      toast.error('Failed to rename file');
+    }
+  }, [renameFile]);
+
+  // ৯. ফাইল আপলোড হ্যান্ডলার
+  const handleUploadFile = useCallback(async (file: File, parentPath?: string) => {
+    try {
+      // Use your fileSystem hook to upload file
+      const uploadedPath = await uploadFile(file, parentPath);
+      
+      // Create new file item for the uploaded file
+      const newFile: FileItem = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: 'file',
+        extension: file.name.split('.').pop(),
+        path: uploadedPath,
+        lastModified: new Date().toISOString()
+      };
+      
+      // Add to local state (simplified - in real app, you'd need to find the parent)
+      setFiles(prev => [...prev, newFile]);
+      
+      toast.success(`Uploaded ${file.name}`);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    }
+  }, [uploadFile]);
+
+  // হেল্পার ফাংশনস
+  const findFileById = useCallback((items: FileItem[], id: string): FileItem | null => {
+    for (const item of items) {
+      if (item.id === id) return item;
+      if (item.children) {
+        const found = findFileById(item.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  const addFileToFolder = useCallback((tree: FileItem[], folderId: string, newFile: FileItem): FileItem[] => {
+    return tree.map(item => {
+      if (item.id === folderId && item.type === 'folder') {
+        return {
+          ...item,
+          children: [...(item.children || []), newFile]
+        };
+      }
+      if (item.children) {
+        return {
+          ...item,
+          children: addFileToFolder(item.children, folderId, newFile)
+        };
+      }
+      return item;
+    });
+  }, []);
+
+  const deleteFileFromTree = useCallback((tree: FileItem[], fileId: string): FileItem[] => {
+    return tree.filter(item => {
+      if (item.id === fileId) return false;
+      if (item.children) {
+        item.children = deleteFileFromTree(item.children, fileId);
+      }
+      return true;
+    });
+  }, []);
+
+  const renameFileInTree = useCallback((tree: FileItem[], fileId: string, newName: string): FileItem[] => {
+    return tree.map(item => {
+      if (item.id === fileId) {
+        const extension = item.type === 'file' ? newName.split('.').pop() : undefined;
+        return { 
+          ...item, 
+          name: newName,
+          extension,
+          lastModified: new Date().toISOString()
+        };
+      }
+      if (item.children) {
+        return {
+          ...item,
+          children: renameFileInTree(item.children, fileId, newName)
+        };
+      }
+      return item;
+    });
+  }, []);
+
+  // লোডিং স্টেট
+  if (isSyncing || fileSystemLoading) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
         <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
         <p className="text-white/60 font-bogura">বগুড়া সার্ভার থ্যাকা ফাইল লিয়াসছি...</p>
         <Progress value={70} className="w-64 mt-4" />
+      </div>
+    );
+  }
+
+  // এরর স্টেট
+  if (fileSystemError) {
+    return (
+      <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
+        <CloudOff className="w-16 h-16 text-red-500 mb-4" />
+        <h2 className="text-xl text-white mb-2">File System Error</h2>
+        <p className="text-white/60 mb-4">{fileSystemError}</p>
+        <Button onClick={() => window.location.reload()}>
+          Reload IDE
+        </Button>
       </div>
     );
   }
@@ -675,7 +1195,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         "flex-1 flex flex-col h-full transition-colors duration-300",
         darkMode ? "bg-[#0f0f1a] text-white" : "bg-gray-50 text-gray-900"
       )}>
-        {/* Enhanced Header */}
+        {/* Header */}
         <div className={cn(
           "h-12 flex items-center justify-between px-4 border-b",
           darkMode ? "bg-[#16162a] border-white/10" : "bg-white border-gray-200"
@@ -810,7 +1330,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 </TabsList>
               </Tabs>
 
-              {/* File Explorer / Active View */}
+              {/* File Explorer */}
               <div className="flex-1 overflow-auto">
                 {activeView === 'explorer' && (
                   <FileExplorer 
@@ -828,55 +1348,25 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                         return newSet;
                       });
                     }}
-                    onFileSelect={(f) => {
-                      if (f.type === 'file') {
-                        if (!openTabs.find(t => t.id === f.id)) {
+                    onFileSelect={(file) => {
+                      if (file.type === 'file') {
+                        if (!openTabs.find(t => t.id === file.id)) {
                           setOpenTabs([...openTabs, { 
-                            id: f.id, 
-                            name: f.name, 
-                            language: getLanguage(f.extension),
-                            icon: getFileIcon(f.name)
+                            id: file.id, 
+                            name: file.name, 
+                            language: getLanguage(file.extension),
+                            icon: getFileIcon(file.name),
+                            path: file.path
                           }]);
                         }
-                        setActiveTabId(f.id);
+                        setActiveTabId(file.id);
                       }
                     }}
-                    onFileCreate={(parentId, name, type) => {
-                      const newFile: FileItem = {
-                        id: crypto.randomUUID(),
-                        name,
-                        type,
-                        extension: type === 'file' ? name.split('.').pop() : undefined,
-                        content: type === 'file' ? '' : undefined,
-                        children: type === 'folder' ? [] : undefined,
-                        lastModified: new Date().toISOString()
-                      };
-                      setFiles(prev => addFileToTree(prev, parentId, newFile));
-                      
-                      if (type === 'file') {
-                        setOpenTabs([...openTabs, { 
-                          id: newFile.id, 
-                          name: newFile.name, 
-                          language: getLanguage(newFile.extension),
-                          icon: getFileIcon(newFile.name)
-                        }]);
-                        setActiveTabId(newFile.id);
-                      }
-                    }}
-                    onFileDelete={(fileId) => {
-                      setFiles(prev => deleteFileFromTree(prev, fileId));
-                      setOpenTabs(prev => prev.filter(t => t.id !== fileId));
-                      if (activeTabId === fileId && openTabs.length > 1) {
-                        const remainingTabs = openTabs.filter(t => t.id !== fileId);
-                        setActiveTabId(remainingTabs[remainingTabs.length-1].id);
-                      }
-                    }}
-                    onFileRename={(fileId, newName) => {
-                      setFiles(prev => renameFileInTree(prev, fileId, newName));
-                      setOpenTabs(prev => prev.map(t => 
-                        t.id === fileId ? { ...t, name: newName } : t
-                      ));
-                    }}
+                    onCreateFile={handleCreateFile}
+                    onCreateFolder={handleCreateFolder}
+                    onDeleteFile={handleDeleteFile}
+                    onRenameFile={handleRenameFile}
+                    onUploadFile={handleUploadFile}
                   />
                 )}
 
@@ -889,7 +1379,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                       className="mb-4"
                     />
                     <div className="text-sm text-muted-foreground">
-                      Search results will appear here
+                      Type to search files and code
                     </div>
                   </div>
                 )}
@@ -897,37 +1387,47 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 {activeView === 'git' && (
                   <div className="p-3">
                     <div className="text-sm text-muted-foreground">
-                      Git features coming soon...
+                      Git integration coming soon...
+                    </div>
+                  </div>
+                )}
+
+                {activeView === 'extensions' && (
+                  <div className="p-3">
+                    <div className="text-sm text-muted-foreground">
+                      Extensions marketplace coming soon...
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Status Bar at Bottom of Sidebar */}
+              {/* Status Bar */}
               <div className={cn(
                 "border-t p-2 text-xs",
                 darkMode ? "border-white/10" : "border-gray-200"
               )}>
                 <div className="flex items-center justify-between">
-                  <span>Files: {files.length}</span>
-                  <span>UTF-8</span>
-                  <div className="flex gap-1">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-6 w-6 p-0"
-                      onClick={() => setEditorFontSize(fs => Math.max(10, fs - 1))}
-                    >
-                      A-
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-6 w-6 p-0"
-                      onClick={() => setEditorFontSize(fs => Math.min(fs + 1, 24))}
-                    >
-                      A+
-                    </Button>
+                  <span>Total: {files.length} items</span>
+                  <div className="flex items-center gap-2">
+                    <span>UTF-8</span>
+                    <div className="flex gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-6 w-6 p-0"
+                        onClick={() => setEditorFontSize(fs => Math.max(10, fs - 1))}
+                      >
+                        A-
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-6 w-6 p-0"
+                        onClick={() => setEditorFontSize(fs => Math.min(fs + 1, 24))}
+                      >
+                        A+
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -936,7 +1436,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
           {/* Main Editor Area */}
           <div className="flex-1 flex flex-col min-w-0">
-            {/* Enhanced Tabs */}
+            {/* Editor Tabs */}
             <div className={cn(
               "border-b",
               darkMode ? "border-white/10" : "border-gray-200"
@@ -957,7 +1457,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
             {/* Editor Area */}
             <div className="flex-1 relative">
-              {layoutMode === 'split' && (
+              {layoutMode === 'split' ? (
                 <div className="grid grid-cols-2 h-full">
                   <div className="border-r">
                     {activeFile ? (
@@ -966,7 +1466,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                         language={getLanguage(activeFile.extension)} 
                         theme={darkMode ? 'vs-dark' : 'light'}
                         fontSize={editorFontSize}
-                        onChange={(v) => updateFileContent(activeTabId, v || '')} 
+                        onChange={(content) => updateFileContent(activeTabId, content || '')} 
+                        filePath={activeFile.path}
                       />
                     ) : (
                       <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
@@ -976,13 +1477,11 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                       </div>
                     )}
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 overflow-auto">
                     <PreviewPanel />
                   </div>
                 </div>
-              )}
-
-              {layoutMode === 'editor' && (
+              ) : (
                 <div className="h-full">
                   {activeFile ? (
                     <CodeEditor 
@@ -990,7 +1489,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                       language={getLanguage(activeFile.extension)} 
                       theme={darkMode ? 'vs-dark' : 'light'}
                       fontSize={editorFontSize}
-                      onChange={(v) => updateFileContent(activeTabId, v || '')} 
+                      onChange={(content) => updateFileContent(activeTabId, content || '')} 
+                      filePath={activeFile.path}
                     />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
@@ -1031,10 +1531,28 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                     <span className="text-green-400 mr-2">$</span>
                     <input
                       className="flex-1 bg-transparent border-none outline-none"
-                      placeholder="Type command..."
+                      placeholder="Type command (ls, npm run, git status)..."
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          runTerminalCommand(e.currentTarget.value);
+                        if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                          // Simulate terminal commands
+                          const command = e.currentTarget.value.trim();
+                          setTerminalOutput(prev => [...prev, `$ ${command}`]);
+                          
+                          if (command === 'ls') {
+                            const fileList = files.map(f => f.name).join('  ');
+                            setTimeout(() => {
+                              setTerminalOutput(prev => [...prev, fileList]);
+                            }, 100);
+                          } else if (command === 'npm run dev') {
+                            setTimeout(() => {
+                              setTerminalOutput(prev => [...prev, 
+                                'Starting development server...',
+                                'Server running on http://localhost:3000',
+                                'Compiled successfully!'
+                              ]);
+                            }, 100);
+                          }
+                          
                           e.currentTarget.value = '';
                         }
                       }}
@@ -1045,7 +1563,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             )}
           </div>
 
-          {/* Right Panel */}
+          {/* Right Panel - AI Assistant */}
           {showRightPanel && (
             <div className={cn(
               "w-[400px] border-l flex flex-col",
@@ -1068,31 +1586,21 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               
               <div className="flex-1 overflow-hidden">
                 <UnifiedAIChatPanel 
-                  onInsertCode={(code) => activeFile && updateFileContent(activeTabId, activeFile.content + '\n' + code)} 
-                  onFileOperations={(ops) => {
-                    // Handle file operations from AI
-                    ops.forEach(op => {
-                      if (op.type === 'create') {
-                        const newFile: FileItem = {
-                          id: crypto.randomUUID(),
-                          name: op.path,
-                          type: 'file',
-                          extension: op.path.split('.').pop(),
-                          content: op.content || '',
-                          lastModified: new Date().toISOString()
-                        };
-                        setFiles(prev => [...prev, newFile]);
-                        setOpenTabs([...openTabs, { 
-                          id: newFile.id, 
-                          name: newFile.name, 
-                          language: getLanguage(newFile.extension),
-                          icon: getFileIcon(newFile.name)
-                        }]);
-                        setActiveTabId(newFile.id);
-                      }
-                    });
+                  onInsertCode={(code) => {
+                    if (activeFile && activeFile.content !== undefined) {
+                      updateFileContent(activeTabId, activeFile.content + '\n' + code);
+                    }
                   }} 
-                  currentFiles={files.map(f => ({ path: f.name, content: f.content || '' }))}
+                  onFileOperations={(operations) => {
+                    // AI থেকে ফাইল অপারেশনের জন্য
+                    executeOperations(operations);
+                  }} 
+                  currentFiles={files
+                    .filter(f => f.type === 'file')
+                    .map(f => ({ 
+                      path: f.path || f.name, 
+                      content: f.content || '' 
+                    }))}
                   theme={darkMode ? 'dark' : 'light'}
                 />
               </div>
@@ -1121,7 +1629,6 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           </div>
           <div className="flex items-center gap-4">
             <span>Ln {activeFile?.content?.split('\n').length || 1}, Col 1</span>
-            <span>Spaces: 2</span>
             <span>UTF-8</span>
             <button 
               className="flex items-center gap-1"
@@ -1132,7 +1639,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
           </div>
         </div>
 
-        {/* Modals */}
+        {/* Project History Modal */}
         {showProjectHistory && (
           <ProjectHistoryPanel 
             projects={projects} 
