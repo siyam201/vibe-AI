@@ -92,9 +92,9 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
-import { PreviewPanel } from '@/components/preview/PreviewPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
-import { useFileSystem } from '@/hooks/useFileSystem';
+import { useProjectHistory } from '@/hooks/useProjectHistory';
+import { useFileOperations } from '@/hooks/useFileOperations';
 import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { toast } from 'sonner';
 
@@ -121,6 +121,7 @@ interface FileItem {
 interface IDEWorkspaceProps {
   projectName: string;
   onPublish: () => void;
+  initialFiles?: FileItem[];
 }
 
 // Helper functions
@@ -769,7 +770,7 @@ const AutoScanSystem = ({
 };
 
 // Main IDE Workspace Component
-export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
+export const IDEWorkspace = ({ projectName, onPublish, initialFiles = [] }: IDEWorkspaceProps) => {
   const [openTabs, setOpenTabs] = useState<EditorTab[]>([
     { 
       id: 'welcome', 
@@ -789,9 +790,35 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [activeView, setActiveView] = useState<'explorer' | 'scan'>('explorer');
   const [showProjectHistory, setShowProjectHistory] = useState(false);
 
-  const fileSystem = useFileSystem({ projectName });
+  // 使用 Project History Hook 进行撤销/重做
+  const {
+    currentState: files,
+    pushState,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useProjectHistory<FileItem[]>(initialFiles);
 
-  // Auto-save simulation
+  // 使用 File Operations Hook 进行文件管理
+  const {
+    uploadFile: uploadFileOperation,
+    deleteFile: deleteFileOperation,
+    renameFile: renameFileOperation,
+    createFile: createFileOperation,
+    createFolder: createFolderOperation,
+    updateFileContent: updateFileContentOperation,
+    isLoading: fileOperationsLoading
+  } = useFileOperations();
+
+  // 初始化文件
+  useEffect(() => {
+    if (initialFiles.length > 0 && files.length === 0) {
+      pushState(initialFiles);
+    }
+  }, [initialFiles, files.length, pushState]);
+
+  // 自动保存模拟
   useEffect(() => {
     if (activeTabId && saveStatus === 'saved') {
       const timer = setTimeout(() => {
@@ -813,16 +840,53 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
       }
       return null;
     };
-    return findFile(fileSystem.files);
-  }, [fileSystem.files, activeTabId]);
+    return findFile(files);
+  }, [files, activeTabId]);
 
   const updateFileContent = useCallback(async (fileId: string, content: string) => {
-    await fileSystem.updateFileContent(fileId, content);
-  }, [fileSystem.updateFileContent]);
+    try {
+      // 更新文件内容
+      const updatedFiles = files.map(item => {
+        if (item.id === fileId) {
+          return { ...item, content };
+        }
+        if (item.children) {
+          const updateChildren = (children: FileItem[]): FileItem[] => 
+            children.map(child => child.id === fileId ? { ...child, content } : child);
+          return { ...item, children: updateChildren(item.children) };
+        }
+        return item;
+      });
+      
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await updateFileContentOperation(fileId, content);
+      
+      toast.success('File saved successfully');
+    } catch (error) {
+      toast.error('Failed to save file');
+      console.error('Error saving file:', error);
+    }
+  }, [files, pushState, updateFileContentOperation]);
 
   const handleCreateFile = useCallback(async (name: string) => {
-    const newFile = await fileSystem.createFile(name, '');
-    if (newFile) {
+    try {
+      const newFile: FileItem = {
+        id: `file-${Date.now()}`,
+        name,
+        type: 'file',
+        extension: name.split('.').pop(),
+        content: '',
+        lastModified: new Date().toISOString()
+      };
+      
+      const updatedFiles = [...files, newFile];
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await createFileOperation(name, '');
+      
       const tab: EditorTab = {
         id: newFile.id,
         name: newFile.name,
@@ -831,31 +895,118 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
       };
       setOpenTabs(prev => [...prev, tab]);
       setActiveTabId(newFile.id);
+      
+      toast.success(`Created ${name}`);
+    } catch (error) {
+      toast.error('Failed to create file');
+      console.error('Error creating file:', error);
     }
-  }, [fileSystem.createFile]);
+  }, [files, pushState, createFileOperation]);
 
   const handleCreateFolder = useCallback(async (name: string) => {
-    await fileSystem.createFolder(name);
-  }, [fileSystem.createFolder]);
+    try {
+      const newFolder: FileItem = {
+        id: `folder-${Date.now()}`,
+        name,
+        type: 'folder',
+        children: [],
+        lastModified: new Date().toISOString()
+      };
+      
+      const updatedFiles = [...files, newFolder];
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await createFolderOperation(name);
+      
+      toast.success(`Created folder ${name}`);
+    } catch (error) {
+      toast.error('Failed to create folder');
+      console.error('Error creating folder:', error);
+    }
+  }, [files, pushState, createFolderOperation]);
 
   const handleDeleteFile = useCallback(async (fileId: string) => {
-    await fileSystem.deleteFile(fileId);
-    setOpenTabs(prev => prev.filter(t => t.id !== fileId));
-    if (activeTabId === fileId && openTabs.length > 1) {
-      setActiveTabId(openTabs[0].id);
+    try {
+      const removeFile = (items: FileItem[]): FileItem[] => {
+        return items.filter(item => {
+          if (item.id === fileId) return false;
+          if (item.children) {
+            return { ...item, children: removeFile(item.children) };
+          }
+          return true;
+        });
+      };
+      
+      const updatedFiles = removeFile(files);
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await deleteFileOperation(fileId);
+      
+      setOpenTabs(prev => prev.filter(t => t.id !== fileId));
+      if (activeTabId === fileId && openTabs.length > 1) {
+        setActiveTabId(openTabs[0].id);
+      }
+      
+      toast.success('File deleted successfully');
+    } catch (error) {
+      toast.error('Failed to delete file');
+      console.error('Error deleting file:', error);
     }
-  }, [fileSystem.deleteFile, activeTabId, openTabs]);
+  }, [files, pushState, activeTabId, openTabs, deleteFileOperation]);
 
   const handleRenameFile = useCallback(async (fileId: string, newName: string) => {
-    await fileSystem.renameFile(fileId, newName);
-    setOpenTabs(prev => prev.map(t => 
-      t.id === fileId ? { ...t, name: newName } : t
-    ));
-  }, [fileSystem.renameFile]);
+    try {
+      const renameFileInTree = (items: FileItem[]): FileItem[] => 
+        items.map(item => {
+          if (item.id === fileId) {
+            return { 
+              ...item, 
+              name: newName,
+              extension: newName.split('.').pop()
+            };
+          }
+          if (item.children) {
+            return { ...item, children: renameFileInTree(item.children) };
+          }
+          return item;
+        });
+      
+      const updatedFiles = renameFileInTree(files);
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await renameFileOperation(fileId, newName);
+      
+      setOpenTabs(prev => prev.map(t => 
+        t.id === fileId ? { ...t, name: newName } : t
+      ));
+      
+      toast.success('File renamed successfully');
+    } catch (error) {
+      toast.error('Failed to rename file');
+      console.error('Error renaming file:', error);
+    }
+  }, [files, pushState, renameFileOperation]);
 
   const handleUploadFile = useCallback(async (file: File) => {
-    const newFile = await fileSystem.uploadFile(file);
-    if (newFile) {
+    try {
+      const newFile: FileItem = {
+        id: `upload-${Date.now()}`,
+        name: file.name,
+        type: 'file',
+        extension: file.name.split('.').pop(),
+        content: '',
+        lastModified: new Date().toISOString()
+      };
+      
+      const updatedFiles = [...files, newFile];
+      pushState(updatedFiles);
+      
+      // 调用文件操作 hook
+      await uploadFileOperation(file);
+      
       const tab: EditorTab = {
         id: newFile.id,
         name: newFile.name,
@@ -864,16 +1015,22 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
       };
       setOpenTabs(prev => [...prev, tab]);
       setActiveTabId(newFile.id);
+      
+      toast.success(`Uploaded ${file.name}`);
+    } catch (error) {
+      toast.error('Failed to upload file');
+      console.error('Error uploading file:', error);
     }
-  }, [fileSystem.uploadFile]);
+  }, [files, pushState, uploadFileOperation]);
 
   const handleScanComplete = useCallback((results: any) => {
     console.log('Scan complete:', results);
   }, []);
 
   const handleAutoFix = useCallback((fixedFiles: FileItem[]) => {
-    fileSystem.setFiles(fixedFiles);
-  }, [fileSystem.setFiles]);
+    pushState(fixedFiles);
+    toast.success('Auto-fix applied');
+  }, [pushState]);
 
   const handleInsertCode = useCallback((code: string) => {
     if (activeFile) {
@@ -889,14 +1046,13 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             await handleCreateFile(op.path.split('/').pop() || 'new-file.txt');
             break;
           case 'edit':
-            // Find and update file content
-            const file = fileSystem.files.find(f => f.path === op.path);
+            const file = findFileById(files, op.fileId);
             if (file) {
               await updateFileContent(file.id, op.content || '');
             }
             break;
           case 'delete':
-            const fileToDelete = fileSystem.files.find(f => f.path === op.path);
+            const fileToDelete = findFileById(files, op.fileId);
             if (fileToDelete) {
               await handleDeleteFile(fileToDelete.id);
             }
@@ -907,32 +1063,44 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
         toast.error(`Failed to ${op.type} ${op.path}`);
       }
     });
-  }, [handleCreateFile, fileSystem.files, updateFileContent, handleDeleteFile]);
+  }, [files, handleCreateFile, updateFileContent, handleDeleteFile]);
 
   const currentFiles = useMemo(() => {
     const extractFiles = (items: FileItem[]): Array<{ path: string; content: string }> => {
-      let files: Array<{ path: string; content: string }> = [];
+      let result: Array<{ path: string; content: string }> = [];
       
       items.forEach(item => {
         if (item.type === 'file' && item.content !== undefined) {
-          files.push({
+          result.push({
             path: item.path || item.name,
             content: item.content
           });
         }
         
         if (item.children) {
-          files = [...files, ...extractFiles(item.children)];
+          result = [...result, ...extractFiles(item.children)];
         }
       });
       
-      return files;
+      return result;
     };
     
-    return extractFiles(fileSystem.files);
-  }, [fileSystem.files]);
+    return extractFiles(files);
+  }, [files]);
 
-  if (fileSystem.isLoading) {
+  // Helper function to find file by ID
+  const findFileById = useCallback((items: FileItem[], fileId: string): FileItem | null => {
+    for (const item of items) {
+      if (item.id === fileId) return item;
+      if (item.children) {
+        const found = findFileById(item.children, fileId);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  if (fileOperationsLoading) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
         <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
@@ -972,6 +1140,38 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               ) : (
                 <><Check className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-500">SAVED</span></>
               )}
+            </div>
+
+            {/* Undo/Redo Controls */}
+            <div className="flex items-center gap-1 ml-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6"
+                    onClick={undo}
+                    disabled={!canUndo}
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Undo</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6"
+                    onClick={redo}
+                    disabled={!canRedo}
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Redo</TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
@@ -1020,7 +1220,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               <div className="flex-1 overflow-hidden">
                 {activeView === 'explorer' ? (
                   <FileExplorer 
-                    files={fileSystem.files} 
+                    files={files} 
                     activeFileId={activeTabId} 
                     onFileSelect={(file) => {
                       if (!openTabs.find(t => t.id === file.id)) {
@@ -1043,7 +1243,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 ) : (
                   <div className="p-3">
                     <AutoScanSystem 
-                      files={fileSystem.files} 
+                      files={files} 
                       onScanComplete={handleScanComplete}
                       onAutoFix={handleAutoFix}
                     />
@@ -1053,7 +1253,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             </div>
           )}
 
-          {/* Main Editor Area */}
+          {/* Main Editor Area - 没有预览面板 */}
           <div className="flex-1 flex flex-col min-w-0">
             <div className={cn(
               "border-b",
@@ -1076,20 +1276,14 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
 
             <div className="flex-1 relative">
               {activeFile ? (
-                <div className="grid grid-cols-2 h-full">
-                  <div className="border-r">
-                    <CodeEditor 
-                      code={activeFile.content || ''} 
-                      language={getLanguage(activeFile.extension)} 
-                      theme={darkMode ? 'vs-dark' : 'light'}
-                      fontSize={14}
-                      onChange={(content) => updateFileContent(activeFile.id, content || '')} 
-                    />
-                  </div>
-                  <div className="p-4 overflow-auto">
-                    <PreviewPanel />
-                  </div>
-                </div>
+                <CodeEditor 
+                  code={activeFile.content || ''} 
+                  language={getLanguage(activeFile.extension)} 
+                  theme={darkMode ? 'vs-dark' : 'light'}
+                  fontSize={14}
+                  onChange={(content) => updateFileContent(activeFile.id, content || '')} 
+                  className="h-full"
+                />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
                   <CircuitBoard size={64} className="opacity-50" />
@@ -1200,6 +1394,15 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               <Loader2 className="w-3 h-3 animate-spin" />
               AI Ready
             </span>
+            {canUndo && (
+              <button 
+                className="flex items-center gap-1 hover:bg-white/10 px-2 py-0.5 rounded"
+                onClick={undo}
+              >
+                <History className="w-3 h-3" />
+                Undo
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <span>Ln {activeFile?.content?.split('\n').length || 1}, Col 1</span>
