@@ -45,7 +45,11 @@ import {
   FileWarning,
   Cpu,
   Battery,
-  Activity
+  Activity,
+  User,
+  BookOpen,
+  Clock,
+  ChevronLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -66,6 +70,7 @@ import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
 import { PreviewPanel } from '@/components/preview/PreviewPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { useFileSystem } from '@/hooks/useFileSystem';
+import { useAIChat } from '@/hooks/useAIChat';
 import { toast } from 'sonner';
 
 interface FileItem {
@@ -262,7 +267,6 @@ const FileExplorer = ({
                 className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
                 onClick={(e) => {
                   e.stopPropagation();
-                  // Show context menu options
                   if (isFolder) {
                     onCreateFolder(`${item.name}/new-folder`);
                   } else {
@@ -738,56 +742,78 @@ const AutoScanSystem = ({
   );
 };
 
-// AI Assistant Panel with Improved UI
-const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => void }) => {
+// AI Assistant Panel using useAIChat hook
+const AIAssistantPanel = ({ 
+  onInsertCode,
+  currentFiles 
+}: { 
+  onInsertCode: (code: string) => void;
+  currentFiles: Array<{ path: string; content: string }>;
+}) => {
   const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [chatMode, setChatMode] = useState<'chat' | 'plan' | 'test'>('chat');
-  const [chatHistory, setChatHistory] = useState<Array<{role: 'user' | 'assistant', content: string, timestamp: Date}>>([
-    {
-      role: 'assistant',
-      content: "Hi! I'm your AI Assistant. I can help you with:\n• Writing code\n• Debugging issues\n• Planning features\n• Testing suggestions\n\nWhat would you like to build today?",
-      timestamp: new Date()
-    }
-  ]);
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Use the existing useAIChat hook
+  const { 
+    messages: chatMessages, 
+    isLoading, 
+    currentMode, 
+    setCurrentMode, 
+    sendMessage, 
+    clearHistory 
+  } = useAIChat();
 
-  const handleSendMessage = useCallback(async () => {
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatMessages]);
+
+  const handleSendMessage = async () => {
     if (!message.trim() || isLoading) return;
 
-    const userMessage = message.trim();
-    setChatHistory(prev => [...prev, { 
-      role: 'user', 
-      content: userMessage,
-      timestamp: new Date()
-    }]);
-    setMessage('');
-    setIsLoading(true);
-
-    // Simulate AI response
-    setTimeout(() => {
-      let response = '';
+    try {
+      const response = await sendMessage(message.trim(), currentMode);
       
-      if (chatMode === 'chat') {
-        const responses = [
-          "I can help you with that! Here's a responsive navigation bar:\n\n```html\n<nav class=\"navbar\">\n  <div class=\"logo\">MyApp</div>\n  <ul class=\"nav-links\">\n    <li><a href=\"#\">Home</a></li>\n    <li><a href=\"#\">About</a></li>\n    <li><a href=\"#\">Contact</a></li>\n  </ul>\n</nav>\n\n```css\n.navbar {\n  display: flex;\n  justify-content: space-between;\n  padding: 1rem 2rem;\n  background: #333;\n  color: white;\n}```",
-          "Great idea! Here's a modern login form:\n\n```html\n<div class=\"login-container\">\n  <form id=\"login-form\">\n    <h2>Welcome Back</h2>\n    <input type=\"email\" placeholder=\"Email\" required>\n    <input type=\"password\" placeholder=\"Password\" required>\n    <button type=\"submit\">Sign In</button>\n    <p class=\"signup-link\">New here? <a href=\"#\">Sign up</a></p>\n  </form>\n</div>```",
-          "Let me create a card component for you:\n\n```html\n<div class=\"card\">\n  <img src=\"image.jpg\" alt=\"Card Image\">\n  <div class=\"card-content\">\n    <h3>Card Title</h3>\n    <p>This is a description of the card content.</p>\n    <button class=\"card-btn\">Learn More</button>\n  </div>\n</div>```"
-        ];
-        response = responses[Math.floor(Math.random() * responses.length)];
-      } else if (chatMode === 'plan') {
-        response = "Based on your requirements, here's a project plan:\n\n1. **Setup Project Structure**\n   - Create HTML, CSS, JS files\n   - Set up basic layout\n\n2. **Implement Core Features**\n   - User authentication\n   - Data display components\n   - API integration\n\n3. **Add Polish**\n   - Responsive design\n   - Animations\n   - Error handling\n\n4. **Testing & Deployment**\n   - Cross-browser testing\n   - Performance optimization\n   - Deploy to hosting";
-      } else {
-        response = "For testing, consider these approaches:\n\n**Unit Tests:**\n```javascript\ntest('login function', () => {\n  expect(login('user', 'pass')).toBe(true);\n});\n```\n\n**Integration Tests:**\n- Test API endpoints\n- Test user flows\n- Test error scenarios\n\n**Performance Tests:**\n- Load time optimization\n- Memory usage\n- Concurrent users";
+      // Extract code from response if available
+      if (response.code) {
+        // You can optionally auto-insert code here
       }
       
-      setChatHistory(prev => [...prev, { 
-        role: 'assistant', 
-        content: response,
-        timestamp: new Date()
-      }]);
-      setIsLoading(false);
-    }, 1000);
-  }, [message, isLoading, chatMode]);
+      setMessage('');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handleInsertCode = (code: string) => {
+    onInsertCode(code);
+    toast.success('Code inserted into editor');
+  };
+
+  const handleClearHistory = () => {
+    if (confirm('Are you sure you want to clear chat history?')) {
+      clearHistory();
+    }
+  };
+
+  const modeIcons = {
+    chat: MessageSquare,
+    plan: Lightbulb,
+    test: Wrench
+  };
+
+  const ModeIcon = modeIcons[currentMode];
 
   return (
     <div className="h-full flex flex-col bg-[#0a0a14]">
@@ -810,7 +836,7 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
         </div>
         
         {/* Mode Tabs */}
-        <Tabs value={chatMode} onValueChange={(v: any) => setChatMode(v)} className="w-full">
+        <Tabs value={currentMode} onValueChange={(v: 'chat' | 'plan' | 'test') => setCurrentMode(v)} className="w-full">
           <TabsList className="grid grid-cols-3 w-full">
             <TabsTrigger value="chat" className="text-xs">
               <MessageSquare className="w-3 h-3 mr-1" />
@@ -831,9 +857,9 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
       {/* Chat Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
-          {chatHistory.map((msg, idx) => (
+          {chatMessages.map((msg) => (
             <div
-              key={idx}
+              key={msg.id}
               className={cn(
                 "rounded-lg p-3 max-w-[85%]",
                 msg.role === 'user' 
@@ -841,27 +867,49 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
                   : "bg-white/5"
               )}
             >
-              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-              <div className="text-xs opacity-50 mt-2">
-                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              <div className="flex items-center gap-2 mb-2">
+                {msg.role === 'assistant' && (
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <ModeIcon className="w-3 h-3" />
+                    {msg.mode?.charAt(0).toUpperCase() + msg.mode?.slice(1) || 'AI'}
+                  </Badge>
+                )}
+                {msg.role === 'user' && (
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <User className="w-3 h-3" />
+                    You
+                  </Badge>
+                )}
+                <span className="text-xs opacity-50">
+                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
               
-              {msg.role === 'assistant' && msg.content.includes('```') && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="mt-2 h-6 text-xs"
-                  onClick={() => {
-                    const codeMatch = msg.content.match(/```[a-z]*\n([\s\S]*?)```/);
-                    if (codeMatch) {
-                      onInsertCode(codeMatch[1]);
-                      toast.success('Code inserted into editor');
-                    }
-                  }}
-                >
-                  <Copy className="w-3 h-3 mr-1" />
-                  Insert Code
-                </Button>
+              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+              
+              {msg.role === 'assistant' && msg.codeSnippet && (
+                <div className="mt-3">
+                  <div className="relative rounded-lg overflow-hidden border border-white/10">
+                    <div className="flex items-center justify-between px-3 py-2 bg-white/5">
+                      <div className="flex items-center gap-2">
+                        <FileCode className="w-4 h-4" />
+                        <span className="text-sm font-medium">Code</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2"
+                        onClick={() => handleInsertCode(msg.codeSnippet!)}
+                      >
+                        <Copy className="w-3 h-3 mr-1" />
+                        <span className="text-xs">Insert</span>
+                      </Button>
+                    </div>
+                    <pre className="p-3 text-sm overflow-x-auto bg-black/20">
+                      <code>{msg.codeSnippet}</code>
+                    </pre>
+                  </div>
+                </div>
               )}
             </div>
           ))}
@@ -874,6 +922,8 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
               </div>
             </div>
           )}
+          
+          <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
       
@@ -884,20 +934,20 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
             placeholder="Describe what you want to build (e.g., 'Create a login system')"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
+            onKeyDown={handleKeyDown}
             className="min-h-[60px] resize-none bg-white/5 border-white/10"
+            disabled={isLoading}
           />
           <Button 
             onClick={handleSendMessage}
             disabled={!message.trim() || isLoading}
             className="self-end"
           >
-            <Send className="w-4 h-4" />
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
           </Button>
         </div>
         <div className="flex items-center justify-between mt-2">
@@ -905,15 +955,44 @@ const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => vo
             Press Enter to send • Shift+Enter for new line
           </span>
           <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-6 text-xs">
-              <Copy className="w-3 h-3 mr-1" />
-              Insert
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-6 text-xs"
+              onClick={handleClearHistory}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              Clear
             </Button>
             <Button size="sm" variant="ghost" className="h-6 text-xs">
               <Settings className="w-3 h-3 mr-1" />
               Settings
             </Button>
           </div>
+        </div>
+        
+        {/* Quick Actions */}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-7"
+            onClick={() => sendMessage('Create a responsive navigation bar', 'chat')}
+            disabled={isLoading}
+          >
+            <Sparkles className="w-3 h-3 mr-1" />
+            Navigation
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-7"
+            onClick={() => sendMessage('Help me plan an e-commerce website', 'plan')}
+            disabled={isLoading}
+          >
+            <Lightbulb className="w-3 h-3 mr-1" />
+            Plan Project
+          </Button>
         </div>
       </div>
     </div>
@@ -1031,6 +1110,29 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
       updateFileContent(activeFile.id, (activeFile.content || '') + '\n' + code);
     }
   }, [activeFile, updateFileContent]);
+
+  const currentFiles = useMemo(() => {
+    const extractFiles = (items: FileItem[]): Array<{ path: string; content: string }> => {
+      let files: Array<{ path: string; content: string }> = [];
+      
+      items.forEach(item => {
+        if (item.type === 'file' && item.content !== undefined) {
+          files.push({
+            path: item.path || item.name,
+            content: item.content
+          });
+        }
+        
+        if (item.children) {
+          files = [...files, ...extractFiles(item.children)];
+        }
+      });
+      
+      return files;
+    };
+    
+    return extractFiles(fileSystem.files);
+  }, [fileSystem.files]);
 
   if (fileSystem.isLoading) {
     return (
@@ -1257,7 +1359,10 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               </div>
               
               <div className="flex-1 overflow-hidden">
-                <AIAssistantPanel onInsertCode={handleInsertCode} />
+                <AIAssistantPanel 
+                  onInsertCode={handleInsertCode}
+                  currentFiles={currentFiles}
+                />
               </div>
             </div>
           )}
