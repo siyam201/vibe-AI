@@ -769,43 +769,43 @@ const AutoScanSystem = ({
 };
 
 // AI Assistant Panel
-const AIAssistantPanel = ({ 
-  onInsertCode,
-  onFileOperations,
-  currentFiles 
-}: { 
-  onInsertCode: (code: string) => void;
-  onFileOperations: (operations: any[]) => void;
-  currentFiles: Array<{ path: string; content: string }>;
-}) => {
-  const [queuedMessage, setQueuedMessage] = useState<{ id: string; content: string; mode?: string } | null>(null);
+// const AIAssistantPanel = ({ 
+//   onInsertCode,
+//   onFileOperations,
+//   currentFiles 
+// }: { 
+//   onInsertCode: (code: string) => void;
+//   onFileOperations: (operations: any[]) => void;
+//   currentFiles: Array<{ path: string; content: string }>;
+// }) => {
+//   const [queuedMessage, setQueuedMessage] = useState<{ id: string; content: string; mode?: string } | null>(null);
   
-  const quickActions = [
-    {
-      label: 'Create Login System',
-      prompt: 'Create a complete login system with email/password authentication and protected routes',
-      mode: 'plan' as const,
-      icon: <Shield className="w-3 h-3" />
-    },
-    {
-      label: 'Fix Code Issues',
-      prompt: 'Scan my code for issues and suggest fixes',
-      mode: 'test' as const,
-      icon: <Wrench className="w-3 h-3" />
-    },
-    {
-      label: 'Create Dashboard',
-      prompt: 'Create a responsive admin dashboard with charts and tables',
-      mode: 'plan' as const,
-      icon: <Monitor className="w-3 h-3" />
-    },
-    {
-      label: 'Optimize Performance',
-      prompt: 'Analyze my code for performance issues and suggest improvements',
-      mode: 'test' as const,
-      icon: <Zap className="w-3 h-3" />
-    }
-  ];
+//   const quickActions = [
+//     {
+//       label: 'Create Login System',
+//       prompt: 'Create a complete login system with email/password authentication and protected routes',
+//       mode: 'plan' as const,
+//       icon: <Shield className="w-3 h-3" />
+//     },
+//     {
+//       label: 'Fix Code Issues',
+//       prompt: 'Scan my code for issues and suggest fixes',
+//       mode: 'test' as const,
+//       icon: <Wrench className="w-3 h-3" />
+//     },
+//     {
+//       label: 'Create Dashboard',
+//       prompt: 'Create a responsive admin dashboard with charts and tables',
+//       mode: 'plan' as const,
+//       icon: <Monitor className="w-3 h-3" />
+//     },
+//     {
+//       label: 'Optimize Performance',
+//       prompt: 'Analyze my code for performance issues and suggest improvements',
+//       mode: 'test' as const,
+//       icon: <Zap className="w-3 h-3" />
+//     }
+//   ];
 
   return (
     <div className="h-full flex flex-col">
