@@ -808,27 +808,10 @@ const AutoScanSystem = ({
 //   ];
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Quick Actions Header */}
-      <div className="p-3 border-b border-white/10">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-gradient-to-br from-yellow-500/20 to-orange-500/20 rounded-lg">
-              <Brain className="w-4 h-4 text-yellow-500" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">AI Assistant</h3>
-              <p className="text-xs text-gray-400">Powered by GPT-4</p>
-            </div>
-          </div>
-          <Badge variant="secondary" className="gap-1 text-xs">
-            <Activity className="w-3 h-3" />
-            Online
-          </Badge>
-        </div>
+    
         
         {/* Quick Actions */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* <div className="grid grid-cols-2 gap-2">
           {quickActions.map((action, index) => (
             <Button
               key={index}
@@ -846,16 +829,16 @@ const AutoScanSystem = ({
             </Button>
           ))}
         </div>
-      </div>
+      </div> */}
       
       {/* Unified AI Chat Panel */}
       <div className="flex-1 overflow-hidden">
         <UnifiedAIChatPanel
-          onInsertCode={onInsertCode}
+        
           onFileOperations={onFileOperations}
           currentFiles={currentFiles}
-          queuedMessage={queuedMessage}
-          onQueuedMessageHandled={() => setQueuedMessage(null)}
+          
+         
           projectId="current-project"
           initialMode="chat"
         />
