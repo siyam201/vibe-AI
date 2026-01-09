@@ -1,5 +1,4 @@
-// src/components/workspace/IDEWorkspace.tsx
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -17,42 +16,54 @@ import {
   Terminal,
   FileCode,
   FileText,
-  Image,
-  Database,
   Folder,
   File,
-  Trash2,
-  Edit2,
   Plus,
-  MoreVertical,
   ChevronRight,
   ChevronDown,
-  AlertTriangle,
   Shield,
+  AlertTriangle,
   Sparkles,
   RefreshCw,
-  Bug,
-  CheckCircle,
-  Activity,
+  Bot,
+  Send,
+  Copy,
+  Settings,
+  Download,
   Eye,
-  Lock,
-  Upload as UploadIcon
+  Maximize2,
+  Minimize2,
+  MessageSquare,
+  Lightbulb,
+  Wrench,
+  Trash2,
+  Edit2,
+  MoreVertical,
+  Upload as UploadIcon,
+  CheckCircle,
+  XCircle,
+  FileWarning,
+  Cpu,
+  Battery,
+  Activity
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { EditorTabs, EditorTab } from '@/components/editor/EditorTabs';
 import { PreviewPanel } from '@/components/preview/PreviewPanel';
-import { UnifiedAIChatPanel } from '@/components/ai/UnifiedAIChatPanel';
 import { ProjectHistoryPanel } from '@/components/projects/ProjectHistoryPanel';
 import { useFileSystem } from '@/hooks/useFileSystem';
 import { toast } from 'sonner';
@@ -66,12 +77,13 @@ interface FileItem {
   children?: FileItem[];
   path?: string;
   lastModified?: string;
-  size?: number;
   issues?: Array<{
-    type: 'error' | 'warning' | 'info';
+    type: 'error' | 'warning' | 'info' | 'security';
     message: string;
     line?: number;
     column?: number;
+    fix?: string;
+    severity: 'low' | 'medium' | 'high';
   }>;
 }
 
@@ -93,6 +105,10 @@ const getLanguage = (extension?: string) => {
     'css': 'css', 
     'json': 'json', 
     'md': 'markdown',
+    'py': 'python',
+    'java': 'java',
+    'cpp': 'cpp',
+    'php': 'php'
   };
   return map[ext] || 'plaintext';
 };
@@ -106,10 +122,13 @@ const getFileIcon = (fileName: string) => {
     case 'css': return <FileCode className="w-4 h-4 text-pink-500" />;
     case 'json': return <FileCode className="w-4 h-4 text-green-500" />;
     case 'md': return <FileText className="w-4 h-4 text-gray-500" />;
+    case 'py': return <FileCode className="w-4 h-4 text-blue-400" />;
+    case 'java': return <FileCode className="w-4 h-4 text-red-500" />;
     default: return <FileText className="w-4 h-4" />;
   }
 };
 
+// Enhanced File Explorer with Context Menu
 const FileExplorer = ({ 
   files, 
   activeFileId, 
@@ -130,22 +149,32 @@ const FileExplorer = ({
   onUploadFile: (file: File) => void;
 }) => {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const renderFileTree = (items: FileItem[], depth = 0) => {
     return items.map(item => {
       const isFolder = item.type === 'folder';
       const isCollapsed = collapsedFolders.has(item.id);
       const isActive = activeFileId === item.id;
+      const isRenaming = renamingId === item.id;
 
       return (
-        <div key={item.id}>
+        <div key={item.id} className="select-none group">
           <div
             className={cn(
-              "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-white/10",
-              isActive && "bg-blue-600 text-white"
+              "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors",
+              isActive 
+                ? "bg-blue-600 text-white" 
+                : "hover:bg-white/10 text-gray-300"
             )}
             style={{ paddingLeft: `${depth * 20 + 12}px` }}
-            onClick={() => {
+            onClick={(e) => {
+              if (isRenaming) {
+                e.stopPropagation();
+                return;
+              }
               if (isFolder) {
                 setCollapsedFolders(prev => {
                   const newSet = new Set(prev);
@@ -160,23 +189,90 @@ const FileExplorer = ({
                 onFileSelect(item);
               }
             }}
+            onDoubleClick={() => {
+              if (isFolder && !isRenaming) {
+                setCollapsedFolders(prev => {
+                  const newSet = new Set(prev);
+                  if (newSet.has(item.id)) {
+                    newSet.delete(item.id);
+                  } else {
+                    newSet.add(item.id);
+                  }
+                  return newSet;
+                });
+              }
+            }}
           >
             {isFolder ? (
-              <ChevronRight className={cn("w-4 h-4 transition-transform", !isCollapsed && "rotate-90")} />
-            ) : null}
-            
-            {isFolder ? (
-              <Folder className="w-4 h-4 text-blue-400" />
+              <ChevronRight className={cn(
+                "w-4 h-4 transition-transform flex-shrink-0", 
+                !isCollapsed && "rotate-90"
+              )} />
             ) : (
-              getFileIcon(item.name)
+              <div className="w-4 flex-shrink-0" />
             )}
             
-            <span className="truncate">{item.name}</span>
+            <div className="flex-shrink-0">
+              {isFolder ? (
+                <Folder className="w-4 h-4 text-blue-400" />
+              ) : (
+                getFileIcon(item.name)
+              )}
+            </div>
+            
+            {isRenaming ? (
+              <Input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && renameValue.trim()) {
+                    onRenameFile(item.id, renameValue);
+                    setRenamingId(null);
+                    setRenameValue('');
+                  } else if (e.key === 'Escape') {
+                    setRenamingId(null);
+                    setRenameValue('');
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="h-6 text-sm flex-1 min-w-0"
+                onBlur={() => {
+                  setRenamingId(null);
+                  setRenameValue('');
+                }}
+              />
+            ) : (
+              <span className="truncate flex-1">{item.name}</span>
+            )}
             
             {item.issues && item.issues.length > 0 && (
-              <Badge variant="destructive" className="ml-auto text-xs">
+              <Badge 
+                variant={item.issues.some(i => i.type === 'error') ? "destructive" : "secondary"}
+                className="ml-auto text-xs"
+              >
                 {item.issues.length}
               </Badge>
+            )}
+            
+            {!isRenaming && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Show context menu options
+                  if (isFolder) {
+                    onCreateFolder(`${item.name}/new-folder`);
+                  } else {
+                    setRenamingId(item.id);
+                    setRenameValue(item.name);
+                  }
+                }}
+              >
+                <MoreVertical className="w-3 h-3" />
+              </Button>
             )}
           </div>
           
@@ -190,149 +286,323 @@ const FileExplorer = ({
     });
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onUploadFile(file);
+      event.target.value = '';
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
-      <div className="p-3 border-b">
+      <div className="p-3 border-b border-white/10">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-medium">EXPLORER</h3>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onCreateFile('new-file.txt')}>
-              <File className="w-3 h-3" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onCreateFolder('new-folder')}>
-              <Folder className="w-3 h-3" />
-            </Button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-6 w-6"
+                  onClick={() => onCreateFile('new-file.txt')}
+                >
+                  <File className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New File</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-6 w-6"
+                  onClick={() => onCreateFolder('new-folder')}
+                >
+                  <Folder className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New Folder</TooltipContent>
+            </Tooltip>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-6 w-6"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <UploadIcon className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Upload File</TooltipContent>
+            </Tooltip>
           </div>
+        </div>
+        
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => onCreateFile('index.html')}
+          >
+            HTML
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => onCreateFile('style.css')}
+          >
+            CSS
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 text-xs h-6"
+            onClick={() => onCreateFile('script.js')}
+          >
+            JS
+          </Button>
         </div>
       </div>
       
-      <ScrollArea className="flex-1 p-2">
-        {files.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <Folder className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No files yet</p>
-          </div>
-        ) : (
-          renderFileTree(files)
-        )}
+      <ScrollArea className="flex-1">
+        <div className="p-2">
+          {files.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Folder className="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p className="text-sm mb-1">No files yet</p>
+              <p className="text-xs opacity-75 mb-4">Create or upload files to get started</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onCreateFile('index.html')}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create First File
+              </Button>
+            </div>
+          ) : (
+            renderFileTree(files)
+          )}
+        </div>
       </ScrollArea>
     </div>
   );
 };
 
-// Auto Scan & Fix System Component
-const AutoScanSystem = ({ files, onFixIssue }: { 
+// Advanced Auto Scan & Fix System
+const AutoScanSystem = ({ 
+  files, 
+  onScanComplete,
+  onAutoFix 
+}: { 
   files: FileItem[];
-  onFixIssue: (fileId: string, issueIndex: number) => void;
+  onScanComplete: (results: any) => void;
+  onAutoFix: (fixedFiles: FileItem[]) => void;
 }) => {
   const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
   const [scanResults, setScanResults] = useState<{
-    totalIssues: number;
+    totalFiles: number;
+    scannedFiles: number;
+    issuesFound: number;
     securityIssues: number;
     performanceIssues: number;
     suggestions: number;
-    scannedFiles: number;
+    detailedIssues: Array<{
+      fileId: string;
+      fileName: string;
+      issues: Array<{
+        type: 'error' | 'warning' | 'info' | 'security';
+        message: string;
+        line?: number;
+        fix?: string;
+        severity: 'low' | 'medium' | 'high';
+      }>;
+    }>;
   } | null>(null);
+
+  const scanCodeForIssues = useCallback((content: string, fileName: string) => {
+    const issues = [];
+    
+    // Security checks
+    if (fileName.endsWith('.html')) {
+      if (content.includes('innerHTML')) {
+        issues.push({
+          type: 'security',
+          message: 'Potential XSS vulnerability: innerHTML usage',
+          fix: 'Use textContent or createElement instead',
+          severity: 'high'
+        });
+      }
+      
+      if (content.includes('eval(')) {
+        issues.push({
+          type: 'security',
+          message: 'Dangerous eval() function detected',
+          fix: 'Avoid using eval()',
+          severity: 'critical'
+        });
+      }
+    }
+    
+    // Performance checks
+    if (fileName.endsWith('.js')) {
+      if (content.includes('console.log')) {
+        issues.push({
+          type: 'performance',
+          message: 'Console.log in production code',
+          fix: 'Remove or comment out console.log statements',
+          severity: 'low'
+        });
+      }
+      
+      const lines = content.split('\n');
+      lines.forEach((line, index) => {
+        if (line.includes('for(') && line.includes('innerHTML')) {
+          issues.push({
+            type: 'performance',
+            message: 'DOM manipulation inside loop',
+            line: index + 1,
+            fix: 'Move DOM manipulation outside loop',
+            severity: 'medium'
+          });
+        }
+      });
+    }
+    
+    // Code quality checks
+    if (content.length > 5000) {
+      issues.push({
+        type: 'warning',
+        message: 'File is too large',
+        fix: 'Consider splitting into smaller files',
+        severity: 'medium'
+      });
+    }
+    
+    if (content.includes('// TODO') || content.includes('// FIXME')) {
+      issues.push({
+        type: 'info',
+        message: 'TODO/FIXME comments found',
+        fix: 'Address pending tasks',
+        severity: 'low'
+      });
+    }
+    
+    return issues;
+  }, []);
 
   const scanFiles = useCallback(async () => {
     setIsScanning(true);
+    setScanProgress(0);
     
-    // Simulate scanning
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    const allFiles: FileItem[] = [];
+    const collectFiles = (items: FileItem[]) => {
+      items.forEach(item => {
+        if (item.type === 'file') {
+          allFiles.push(item);
+        }
+        if (item.children) {
+          collectFiles(item.children);
+        }
+      });
+    };
+    collectFiles(files);
     
-    let totalIssues = 0;
+    const totalFiles = allFiles.length;
+    let scannedFiles = 0;
+    let issuesFound = 0;
     let securityIssues = 0;
     let performanceIssues = 0;
     let suggestions = 0;
-    let scannedFiles = 0;
-
-    const scanFile = (file: FileItem) => {
-      if (file.type === 'file') {
-        scannedFiles++;
-        
-        // Check for common issues
-        const issues: typeof file.issues = [];
-        
-        if (file.content) {
-          // Check for console.log in production code
-          if (file.extension === 'js' && file.content.includes('console.log')) {
-            issues.push({
-              type: 'warning',
-              message: 'Console.log found in production code',
-              line: 1
-            });
-            performanceIssues++;
-          }
-          
-          // Check for large files
-          if (file.content.length > 10000) {
-            issues.push({
-              type: 'warning',
-              message: 'File is large, consider splitting',
-              line: 1
-            });
-            performanceIssues++;
-          }
-          
-          // Check for security issues
-          if (file.extension === 'html' && file.content.includes('innerHTML')) {
-            issues.push({
-              type: 'warning',
-              message: 'Potential XSS vulnerability with innerHTML',
-              line: file.content.split('\n').findIndex(l => l.includes('innerHTML')) + 1
-            });
-            securityIssues++;
-          }
-        }
+    const detailedIssues: any[] = [];
+    
+    // Simulate scanning with progress
+    for (const file of allFiles) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      scannedFiles++;
+      setScanProgress((scannedFiles / totalFiles) * 100);
+      
+      if (file.content) {
+        const issues = scanCodeForIssues(file.content, file.name);
         
         if (issues.length > 0) {
-          totalIssues += issues.length;
-          file.issues = issues;
+          issuesFound += issues.length;
+          securityIssues += issues.filter(i => i.type === 'security').length;
+          performanceIssues += issues.filter(i => i.type === 'performance').length;
+          suggestions += issues.filter(i => i.type === 'info').length;
+          
+          detailedIssues.push({
+            fileId: file.id,
+            fileName: file.name,
+            issues
+          });
         }
       }
-      
-      if (file.children) {
-        file.children.forEach(scanFile);
-      }
-    };
-
-    files.forEach(scanFile);
+    }
     
-    // Add some suggestions
-    suggestions = Math.floor(Math.random() * 5) + 1;
-    
-    setScanResults({
-      totalIssues,
+    const results = {
+      totalFiles,
+      scannedFiles,
+      issuesFound,
       securityIssues,
       performanceIssues,
       suggestions,
-      scannedFiles
-    });
+      detailedIssues
+    };
     
+    setScanResults(results);
+    onScanComplete(results);
     setIsScanning(false);
-    toast.success(`Scanned ${scannedFiles} files, found ${totalIssues} issues`);
-  }, [files]);
+    setScanProgress(0);
+    
+    toast.success(`Scan complete: Found ${issuesFound} issues in ${scannedFiles} files`);
+  }, [files, scanCodeForIssues, onScanComplete]);
 
-  const autoFixAll = useCallback(() => {
-    // Simple auto-fix logic
-    files.forEach(file => {
-      if (file.type === 'file' && file.issues && file.content) {
-        // Remove console.log statements
-        if (file.extension === 'js') {
-          const newContent = file.content.replace(/console\.log\(.*?\);?\n?/g, '');
-          if (newContent !== file.content) {
-            file.content = newContent;
-            file.issues = file.issues?.filter(issue => 
-              !issue.message.includes('Console.log')
-            );
+  const performAutoFix = useCallback(() => {
+    if (!scanResults) return;
+    
+    const fixedFiles = [...files];
+    let fixedCount = 0;
+    
+    scanResults.detailedIssues.forEach(fileIssue => {
+      const fileIndex = fixedFiles.findIndex(f => f.id === fileIssue.fileId);
+      if (fileIndex !== -1 && fixedFiles[fileIndex].content) {
+        let content = fixedFiles[fileIndex].content || '';
+        
+        // Apply fixes
+        fileIssue.issues.forEach(issue => {
+          if (issue.fix && issue.type === 'performance') {
+            if (issue.message.includes('Console.log')) {
+              content = content.replace(/console\.log\(.*?\);?\n?/g, '');
+              fixedCount++;
+            }
           }
-        }
+        });
+        
+        fixedFiles[fileIndex] = {
+          ...fixedFiles[fileIndex],
+          content
+        };
       }
     });
     
-    toast.success('Auto-fix applied to all files');
-    setScanResults(prev => prev ? { ...prev, totalIssues: 0 } : null);
-  }, [files]);
+    onAutoFix(fixedFiles);
+    toast.success(`Auto-fixed ${fixedCount} issues`);
+    setScanResults(null);
+  }, [scanResults, files, onAutoFix]);
 
   return (
     <Card className="mb-4">
@@ -342,77 +612,124 @@ const AutoScanSystem = ({ files, onFixIssue }: {
             <Shield className="w-5 h-5 text-blue-500" />
             <CardTitle className="text-base">Auto Scan & Fix</CardTitle>
           </div>
-          <Badge variant={scanResults?.totalIssues ? "destructive" : "secondary"}>
-            {scanResults?.totalIssues || 0} Issues
+          <Badge variant={scanResults?.issuesFound ? "destructive" : "secondary"}>
+            {scanResults?.issuesFound || 0} Issues
           </Badge>
         </div>
         <CardDescription>
-          Scan your code for security, performance, and quality issues
+          Advanced code analysis and automatic fixes
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         {isScanning ? (
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Scanning files...</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Scanning code...</span>
+              </div>
+              <span className="text-sm font-medium">{Math.round(scanProgress)}%</span>
             </div>
-            <Progress value={70} />
+            <Progress value={scanProgress} className="h-2" />
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div>Security</div>
+              <div>Performance</div>
+              <div>Quality</div>
+            </div>
           </div>
         ) : scanResults ? (
           <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center p-3 bg-red-500/10 rounded-lg">
+                <div className="text-2xl font-bold text-red-500">{scanResults.securityIssues}</div>
+                <div className="text-xs mt-1">Security</div>
+              </div>
+              <div className="text-center p-3 bg-orange-500/10 rounded-lg">
+                <div className="text-2xl font-bold text-orange-500">{scanResults.performanceIssues}</div>
+                <div className="text-xs mt-1">Performance</div>
+              </div>
+              <div className="text-center p-3 bg-blue-500/10 rounded-lg">
+                <div className="text-2xl font-bold text-blue-500">{scanResults.suggestions}</div>
+                <div className="text-xs mt-1">Suggestions</div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Total files scanned</span>
+                <span className="font-medium">{scanResults.scannedFiles}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span>Total issues found</span>
+                <span className="font-medium">{scanResults.issuesFound}</span>
+              </div>
+            </div>
+            
+            {scanResults.detailedIssues.length > 0 && (
+              <ScrollArea className="h-32 border rounded-md p-2">
+                <div className="space-y-2">
+                  {scanResults.detailedIssues.slice(0, 3).map((fileIssue, idx) => (
+                    <div key={idx} className="text-sm">
+                      <div className="font-medium">{fileIssue.fileName}</div>
+                      <div className="text-xs text-gray-500">
+                        {fileIssue.issues.length} issues
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+            
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                className="flex-1" 
+                onClick={scanFiles}
+                variant="outline"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Rescan
+              </Button>
+              <Button 
+                size="sm" 
+                className="flex-1" 
+                onClick={performAutoFix}
+                disabled={scanResults.issuesFound === 0}
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                Auto Fix
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Alert>
+              <Shield className="w-4 h-4" />
+              <AlertDescription>
+                Scan your code for security vulnerabilities, performance issues, and code quality problems.
+              </AlertDescription>
+            </Alert>
+            
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-red-500" />
-                  <span className="text-sm font-medium">Security</span>
+                  <span className="text-sm font-medium">Security Scan</span>
                 </div>
-                <div className="text-2xl font-bold">{scanResults.securityIssues}</div>
+                <p className="text-xs text-gray-500">XSS, injection, eval()</p>
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-orange-500" />
                   <span className="text-sm font-medium">Performance</span>
                 </div>
-                <div className="text-2xl font-bold">{scanResults.performanceIssues}</div>
+                <p className="text-xs text-gray-500">DOM issues, loops</p>
               </div>
             </div>
             
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Scanned files</span>
-                <span className="text-sm font-medium">{scanResults.scannedFiles}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Suggestions</span>
-                <span className="text-sm font-medium">{scanResults.suggestions}</span>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            <div className="flex gap-2">
-              <Button size="sm" className="flex-1" onClick={scanFiles} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Rescan
-              </Button>
-              <Button size="sm" className="flex-1" onClick={autoFixAll}>
-                <Sparkles className="w-4 h-4 mr-2" />
-                Auto Fix All
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <Alert>
-              <AlertTriangle className="w-4 h-4" />
-              <AlertDescription>
-                No scan performed yet. Click scan to analyze your code.
-              </AlertDescription>
-            </Alert>
             <Button className="w-full" onClick={scanFiles}>
               <Shield className="w-4 h-4 mr-2" />
-              Start Scan
+              Start Advanced Scan
             </Button>
           </div>
         )}
@@ -421,9 +738,199 @@ const AutoScanSystem = ({ files, onFixIssue }: {
   );
 };
 
+// AI Assistant Panel with Improved UI
+const AIAssistantPanel = ({ onInsertCode }: { onInsertCode: (code: string) => void }) => {
+  const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [chatMode, setChatMode] = useState<'chat' | 'plan' | 'test'>('chat');
+  const [chatHistory, setChatHistory] = useState<Array<{role: 'user' | 'assistant', content: string, timestamp: Date}>>([
+    {
+      role: 'assistant',
+      content: "Hi! I'm your AI Assistant. I can help you with:\n• Writing code\n• Debugging issues\n• Planning features\n• Testing suggestions\n\nWhat would you like to build today?",
+      timestamp: new Date()
+    }
+  ]);
+
+  const handleSendMessage = useCallback(async () => {
+    if (!message.trim() || isLoading) return;
+
+    const userMessage = message.trim();
+    setChatHistory(prev => [...prev, { 
+      role: 'user', 
+      content: userMessage,
+      timestamp: new Date()
+    }]);
+    setMessage('');
+    setIsLoading(true);
+
+    // Simulate AI response
+    setTimeout(() => {
+      let response = '';
+      
+      if (chatMode === 'chat') {
+        const responses = [
+          "I can help you with that! Here's a responsive navigation bar:\n\n```html\n<nav class=\"navbar\">\n  <div class=\"logo\">MyApp</div>\n  <ul class=\"nav-links\">\n    <li><a href=\"#\">Home</a></li>\n    <li><a href=\"#\">About</a></li>\n    <li><a href=\"#\">Contact</a></li>\n  </ul>\n</nav>\n\n```css\n.navbar {\n  display: flex;\n  justify-content: space-between;\n  padding: 1rem 2rem;\n  background: #333;\n  color: white;\n}```",
+          "Great idea! Here's a modern login form:\n\n```html\n<div class=\"login-container\">\n  <form id=\"login-form\">\n    <h2>Welcome Back</h2>\n    <input type=\"email\" placeholder=\"Email\" required>\n    <input type=\"password\" placeholder=\"Password\" required>\n    <button type=\"submit\">Sign In</button>\n    <p class=\"signup-link\">New here? <a href=\"#\">Sign up</a></p>\n  </form>\n</div>```",
+          "Let me create a card component for you:\n\n```html\n<div class=\"card\">\n  <img src=\"image.jpg\" alt=\"Card Image\">\n  <div class=\"card-content\">\n    <h3>Card Title</h3>\n    <p>This is a description of the card content.</p>\n    <button class=\"card-btn\">Learn More</button>\n  </div>\n</div>```"
+        ];
+        response = responses[Math.floor(Math.random() * responses.length)];
+      } else if (chatMode === 'plan') {
+        response = "Based on your requirements, here's a project plan:\n\n1. **Setup Project Structure**\n   - Create HTML, CSS, JS files\n   - Set up basic layout\n\n2. **Implement Core Features**\n   - User authentication\n   - Data display components\n   - API integration\n\n3. **Add Polish**\n   - Responsive design\n   - Animations\n   - Error handling\n\n4. **Testing & Deployment**\n   - Cross-browser testing\n   - Performance optimization\n   - Deploy to hosting";
+      } else {
+        response = "For testing, consider these approaches:\n\n**Unit Tests:**\n```javascript\ntest('login function', () => {\n  expect(login('user', 'pass')).toBe(true);\n});\n```\n\n**Integration Tests:**\n- Test API endpoints\n- Test user flows\n- Test error scenarios\n\n**Performance Tests:**\n- Load time optimization\n- Memory usage\n- Concurrent users";
+      }
+      
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: response,
+        timestamp: new Date()
+      }]);
+      setIsLoading(false);
+    }, 1000);
+  }, [message, isLoading, chatMode]);
+
+  return (
+    <div className="h-full flex flex-col bg-[#0a0a14]">
+      {/* Header */}
+      <div className="p-4 border-b border-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-yellow-500/20 rounded-lg">
+              <Bot className="w-5 h-5 text-yellow-500" />
+            </div>
+            <div>
+              <h3 className="font-semibold">AI Assistant</h3>
+              <p className="text-xs text-gray-400">Beta • Powered by GPT-4</p>
+            </div>
+          </div>
+          <Badge variant="secondary" className="gap-1">
+            <Activity className="w-3 h-3" />
+            Online
+          </Badge>
+        </div>
+        
+        {/* Mode Tabs */}
+        <Tabs value={chatMode} onValueChange={(v: any) => setChatMode(v)} className="w-full">
+          <TabsList className="grid grid-cols-3 w-full">
+            <TabsTrigger value="chat" className="text-xs">
+              <MessageSquare className="w-3 h-3 mr-1" />
+              Chat
+            </TabsTrigger>
+            <TabsTrigger value="plan" className="text-xs">
+              <Lightbulb className="w-3 h-3 mr-1" />
+              Plan
+            </TabsTrigger>
+            <TabsTrigger value="test" className="text-xs">
+              <Wrench className="w-3 h-3 mr-1" />
+              Test
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      
+      {/* Chat Messages */}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
+          {chatHistory.map((msg, idx) => (
+            <div
+              key={idx}
+              className={cn(
+                "rounded-lg p-3 max-w-[85%]",
+                msg.role === 'user' 
+                  ? "ml-auto bg-blue-600 text-white" 
+                  : "bg-white/5"
+              )}
+            >
+              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+              <div className="text-xs opacity-50 mt-2">
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
+              
+              {msg.role === 'assistant' && msg.content.includes('```') && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-2 h-6 text-xs"
+                  onClick={() => {
+                    const codeMatch = msg.content.match(/```[a-z]*\n([\s\S]*?)```/);
+                    if (codeMatch) {
+                      onInsertCode(codeMatch[1]);
+                      toast.success('Code inserted into editor');
+                    }
+                  }}
+                >
+                  <Copy className="w-3 h-3 mr-1" />
+                  Insert Code
+                </Button>
+              )}
+            </div>
+          ))}
+          
+          {isLoading && (
+            <div className="rounded-lg p-3 bg-white/5 max-w-[85%]">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">AI is thinking...</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+      
+      {/* Input Area */}
+      <div className="p-4 border-t border-white/10">
+        <div className="flex gap-2">
+          <Textarea
+            placeholder="Describe what you want to build (e.g., 'Create a login system')"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            className="min-h-[60px] resize-none bg-white/5 border-white/10"
+          />
+          <Button 
+            onClick={handleSendMessage}
+            disabled={!message.trim() || isLoading}
+            className="self-end"
+          >
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-xs text-gray-400">
+            Press Enter to send • Shift+Enter for new line
+          </span>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-6 text-xs">
+              <Copy className="w-3 h-3 mr-1" />
+              Insert
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 text-xs">
+              <Settings className="w-3 h-3 mr-1" />
+              Settings
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
-  const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string>('');
+  const [openTabs, setOpenTabs] = useState<EditorTab[]>([
+    { 
+      id: '2', 
+      name: 'index.html', 
+      language: 'html',
+      icon: getFileIcon('index.html')
+    }
+  ]);
+  
+  const [activeTabId, setActiveTabId] = useState<string>('2');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -431,36 +938,9 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'scan'>('explorer');
+  const [showProjectHistory, setShowProjectHistory] = useState(false);
 
   const fileSystem = useFileSystem({ projectName });
-
-  // Initialize tabs from first file
-  useEffect(() => {
-    if (fileSystem.files.length > 0 && openTabs.length === 0) {
-      const findFirstFile = (items: FileItem[]): FileItem | null => {
-        for (const item of items) {
-          if (item.type === 'file') return item;
-          if (item.children) {
-            const found = findFirstFile(item.children);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-
-      const firstFile = findFirstFile(fileSystem.files);
-      if (firstFile) {
-        const tab: EditorTab = {
-          id: firstFile.id,
-          name: firstFile.name,
-          language: getLanguage(firstFile.extension),
-          icon: getFileIcon(firstFile.name)
-        };
-        setOpenTabs([tab]);
-        setActiveTabId(firstFile.id);
-      }
-    }
-  }, [fileSystem.files, openTabs.length]);
 
   // Auto-save simulation
   useEffect(() => {
@@ -488,49 +968,75 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
   }, [fileSystem.files, activeTabId]);
 
   const updateFileContent = useCallback(async (fileId: string, content: string) => {
-    const file = activeFile;
-    if (file && file.path) {
-      await fileSystem.updateFileContent(file.path, content);
-    }
-  }, [activeFile, fileSystem.updateFileContent]);
+    await fileSystem.updateFileContent(fileId, content);
+  }, [fileSystem.updateFileContent]);
 
   const handleCreateFile = useCallback(async (name: string) => {
-    const path = `src/${name}`;
-    await fileSystem.createFile(path, '');
-    
-    const newFile: FileItem = {
-      id: crypto.randomUUID(),
-      name,
-      type: 'file',
-      extension: name.split('.').pop(),
-      path
-    };
-
-    const tab: EditorTab = {
-      id: newFile.id,
-      name: newFile.name,
-      language: getLanguage(newFile.extension),
-      icon: getFileIcon(newFile.name)
-    };
-    
-    setOpenTabs(prev => [...prev, tab]);
-    setActiveTabId(newFile.id);
+    const newFile = await fileSystem.createFile(name, '');
+    if (newFile) {
+      const tab: EditorTab = {
+        id: newFile.id,
+        name: newFile.name,
+        language: getLanguage(newFile.extension),
+        icon: getFileIcon(newFile.name)
+      };
+      setOpenTabs(prev => [...prev, tab]);
+      setActiveTabId(newFile.id);
+    }
   }, [fileSystem.createFile]);
 
   const handleCreateFolder = useCallback(async (name: string) => {
-    await fileSystem.createFolder(`src/${name}`);
+    await fileSystem.createFolder(name);
   }, [fileSystem.createFolder]);
 
-  const handleFixIssue = useCallback((fileId: string, issueIndex: number) => {
-    // Fix specific issue
-    toast.info(`Fixed issue in file ${fileId}`);
+  const handleDeleteFile = useCallback(async (fileId: string) => {
+    await fileSystem.deleteFile(fileId);
+    setOpenTabs(prev => prev.filter(t => t.id !== fileId));
+    if (activeTabId === fileId && openTabs.length > 1) {
+      setActiveTabId(openTabs[0].id);
+    }
+  }, [fileSystem.deleteFile, activeTabId, openTabs]);
+
+  const handleRenameFile = useCallback(async (fileId: string, newName: string) => {
+    await fileSystem.renameFile(fileId, newName);
+    setOpenTabs(prev => prev.map(t => 
+      t.id === fileId ? { ...t, name: newName } : t
+    ));
+  }, [fileSystem.renameFile]);
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    const newFile = await fileSystem.uploadFile(file);
+    if (newFile) {
+      const tab: EditorTab = {
+        id: newFile.id,
+        name: newFile.name,
+        language: getLanguage(newFile.extension),
+        icon: getFileIcon(newFile.name)
+      };
+      setOpenTabs(prev => [...prev, tab]);
+      setActiveTabId(newFile.id);
+    }
+  }, [fileSystem.uploadFile]);
+
+  const handleScanComplete = useCallback((results: any) => {
+    console.log('Scan complete:', results);
   }, []);
 
-  if (fileSystem.isLoading && fileSystem.files.length === 0) {
+  const handleAutoFix = useCallback((fixedFiles: FileItem[]) => {
+    fileSystem.setFiles(fixedFiles);
+  }, [fileSystem.setFiles]);
+
+  const handleInsertCode = useCallback((code: string) => {
+    if (activeFile) {
+      updateFileContent(activeFile.id, (activeFile.content || '') + '\n' + code);
+    }
+  }, [activeFile, updateFileContent]);
+
+  if (fileSystem.isLoading) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-[#0f0f1a]">
         <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-        <p className="text-white/60">Loading project files...</p>
+        <p className="text-white/60">Loading workspace...</p>
       </div>
     );
   }
@@ -561,6 +1067,8 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             <div className="ml-2 px-2 py-0.5 rounded flex items-center gap-1 border">
               {saveStatus === 'saving' ? (
                 <><Loader2 className="w-3 h-3 animate-spin text-amber-500" /><span className="text-[9px] text-amber-500">SAVING</span></>
+              ) : saveStatus === 'error' ? (
+                <><CloudOff className="w-3 h-3 text-red-500" /><span className="text-[9px] text-red-500">ERROR</span></>
               ) : (
                 <><Check className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-500">SAVED</span></>
               )}
@@ -571,6 +1079,12 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
             <Button variant="ghost" size="icon" onClick={() => setDarkMode(!darkMode)}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </Button>
+            
+            <Button variant="ghost" size="sm" onClick={() => setShowProjectHistory(true)}>
+              <FolderOpen className="w-4 h-4 mr-2" />
+              Projects
+            </Button>
+            
             <Button 
               size="sm" 
               className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700"
@@ -591,17 +1105,19 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               darkMode ? "bg-[#121225] border-white/10" : "bg-white border-gray-200"
             )}>
               <Tabs value={activeView} onValueChange={(v: any) => setActiveView(v)} className="px-2 pt-2">
-                <TabsList className="grid grid-cols-2">
-                  <TabsTrigger value="explorer">
+                <TabsList className="grid grid-cols-2 w-full">
+                  <TabsTrigger value="explorer" className="text-xs">
                     <FileCode className="w-4 h-4" />
+                    Explorer
                   </TabsTrigger>
-                  <TabsTrigger value="scan">
+                  <TabsTrigger value="scan" className="text-xs">
                     <Shield className="w-4 h-4" />
+                    Scan & Fix
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
 
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-hidden">
                 {activeView === 'explorer' ? (
                   <FileExplorer 
                     files={fileSystem.files} 
@@ -620,15 +1136,16 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                     }}
                     onCreateFile={handleCreateFile}
                     onCreateFolder={handleCreateFolder}
-                    onDeleteFile={() => {}}
-                    onRenameFile={() => {}}
-                    onUploadFile={() => {}}
+                    onDeleteFile={handleDeleteFile}
+                    onRenameFile={handleRenameFile}
+                    onUploadFile={handleUploadFile}
                   />
                 ) : (
                   <div className="p-3">
                     <AutoScanSystem 
                       files={fileSystem.files} 
-                      onFixIssue={handleFixIssue}
+                      onScanComplete={handleScanComplete}
+                      onAutoFix={handleAutoFix}
                     />
                   </div>
                 )}
@@ -665,10 +1182,10 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                       language={getLanguage(activeFile.extension)} 
                       theme={darkMode ? 'vs-dark' : 'light'}
                       fontSize={14}
-                      onChange={(content) => updateFileContent(activeTabId, content || '')} 
+                      onChange={(content) => updateFileContent(activeFile.id, content || '')} 
                     />
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 overflow-auto">
                     <PreviewPanel />
                   </div>
                 </div>
@@ -676,6 +1193,7 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
                   <Code2 size={64} />
                   <p>Select a file to start editing</p>
+                  <p className="text-sm">Or create a new file from the explorer</p>
                 </div>
               )}
             </div>
@@ -695,15 +1213,29 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                   </Button>
                 </div>
                 <div className="p-2 font-mono text-sm overflow-auto h-[calc(100%-40px)]">
+                  <div className="mb-2 text-green-400">$ Welcome to Bogura IDE Terminal</div>
                   {terminalOutput.map((line, i) => (
                     <div key={i} className="whitespace-pre-wrap">{line}</div>
                   ))}
+                  <div className="flex items-center mt-2">
+                    <span className="text-green-400 mr-2">$</span>
+                    <input
+                      className="flex-1 bg-transparent border-none outline-none"
+                      placeholder="Type command..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                          setTerminalOutput(prev => [...prev, `$ ${e.currentTarget.value}`]);
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Right Panel */}
+          {/* Right Panel - AI Assistant */}
           {showRightPanel && (
             <div className={cn(
               "w-[400px] border-l flex flex-col",
@@ -715,27 +1247,17 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
                   <span className="font-medium">AI Assistant</span>
                   <Badge variant="secondary" className="ml-1">Beta</Badge>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowRightPanel(false)}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setShowRightPanel(false)}
+                >
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
               
               <div className="flex-1 overflow-hidden">
-                <UnifiedAIChatPanel 
-                  onInsertCode={(code) => {
-                    if (activeFile && activeFile.content !== undefined) {
-                      updateFileContent(activeTabId, activeFile.content + '\n' + code);
-                    }
-                  }} 
-                  onFileOperations={() => {}} 
-                  currentFiles={fileSystem.files
-                    .filter(f => f.type === 'file')
-                    .map(f => ({ 
-                      path: f.path || f.name, 
-                      content: f.content || '' 
-                    }))}
-                  theme={darkMode ? 'dark' : 'light'}
-                />
+                <AIAssistantPanel onInsertCode={handleInsertCode} />
               </div>
             </div>
           )}
@@ -755,12 +1277,36 @@ export const IDEWorkspace = ({ projectName, onPublish }: IDEWorkspaceProps) => {
               Terminal
             </button>
             <span>Branch: main</span>
+            <span className="flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              AI Ready
+            </span>
           </div>
           <div className="flex items-center gap-4">
             <span>Ln {activeFile?.content?.split('\n').length || 1}, Col 1</span>
             <span>UTF-8</span>
+            <button 
+              className="flex items-center gap-1"
+              onClick={() => toast.info('Help documentation coming soon!')}
+            >
+              <Settings className="w-3 h-3" />
+            </button>
           </div>
         </div>
+
+        {/* Project History Modal */}
+        {showProjectHistory && (
+          <ProjectHistoryPanel 
+            projects={[]} 
+            currentProjectId="" 
+            onCreateProject={() => {}} 
+            onLoadProject={() => {}} 
+            onDeleteProject={() => {}} 
+            onDuplicateProject={() => {}} 
+            onClose={() => setShowProjectHistory(false)} 
+            theme={darkMode ? 'dark' : 'light'}
+          />
+        )}
       </div>
     </TooltipProvider>
   );
